@@ -344,6 +344,102 @@ export function createWebSocket(deviceId, onMessage, onError, onClose) {
   return ws;
 }
 
+/**
+ * 带指数退避自动重连的 WebSocket 管理器。
+ * 初始重连间隔 1 秒,每次失败翻倍,最大 30 秒。
+ * status 状态值: 'connecting' | 'connected' | 'reconnecting' | 'disconnected'
+ */
+export function createReconnectingWebSocket(deviceId, { onMessage, onStatusChange } = {}) {
+  const WS_URL = `ws://localhost:8000/ws/${deviceId}`;
+  const BASE_DELAY = 1000;
+  const MAX_DELAY = 30000;
+
+  let ws = null;
+  let retryCount = 0;
+  let closedByUser = false;
+  let reconnectTimer = null;
+
+  function setStatus(status) {
+    if (onStatusChange) onStatusChange(status);
+  }
+
+  function computeDelay() {
+    const delay = Math.min(MAX_DELAY, BASE_DELAY * Math.pow(2, retryCount));
+    return delay;
+  }
+
+  function scheduleReconnect() {
+    if (closedByUser) return;
+    const delay = computeDelay();
+    setStatus('reconnecting');
+    reconnectTimer = setTimeout(connect, delay);
+  }
+
+  function connect() {
+    if (closedByUser) return;
+    setStatus('connecting');
+    try {
+      ws = new WebSocket(WS_URL);
+    } catch (e) {
+      console.error(`WebSocket 创建失败 device ${deviceId}:`, e);
+      retryCount += 1;
+      scheduleReconnect();
+      return;
+    }
+
+    ws.onopen = () => {
+      retryCount = 0;
+      setStatus('connected');
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+        if (onMessage) onMessage(data);
+      } catch (e) {
+        console.error(`WebSocket 消息解析失败 device ${deviceId}:`, e);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error(`WebSocket 错误 device ${deviceId}:`, error);
+    };
+
+    ws.onclose = () => {
+      ws = null;
+      if (closedByUser) {
+        setStatus('disconnected');
+        return;
+      }
+      retryCount += 1;
+      scheduleReconnect();
+    };
+  }
+
+  function disconnect() {
+    closedByUser = true;
+    if (reconnectTimer) {
+      clearTimeout(reconnectTimer);
+      reconnectTimer = null;
+    }
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
+    setStatus('disconnected');
+  }
+
+  connect();
+
+  return { disconnect };
+}
+
+export const monitorApi = {
+  getRealtimeSummary: () => request('/monitor/realtime-summary'),
+
+  getDeviceState: (deviceId) => request(`/monitor/${deviceId}/state`),
+};
+
 export const diagnosisApi = {
   createTask: (taskData) =>
     request('/diagnosis/tasks', {
@@ -402,7 +498,9 @@ export default {
   data: dataApi,
   analysis: analysisApi,
   reports: reportsApi,
+  monitor: monitorApi,
   diagnosis: diagnosisApi,
   system: systemApi,
   createWebSocket,
+  createReconnectingWebSocket,
 };

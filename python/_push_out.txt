@@ -1,0 +1,4 @@
+device=1 sev=mild len=2048 rms=0.3878 freq=50.00 health=100.0 status=良好
+device=1 sev=severe len=2048 rms=0.3877 freq=50.00 health=100.0 status=良好
+device=3 sev=mild len=2048 rms=0.5834 freq=50.00 health=100.0 status=良好
+device=3 sev=severe len=2048 rms=1.7871 freq=175.00 health=95.0 status=良好

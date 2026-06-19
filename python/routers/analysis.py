@@ -2,6 +2,7 @@ from datetime import datetime, timedelta
 from typing import List, Optional, Dict, Any
 from fastapi import APIRouter, HTTPException, status
 import numpy as np
+import math
 
 import sys
 import os
@@ -25,50 +26,91 @@ _analysis_id_counter = 1
 def _init_sample_analysis():
     global _analysis_id_counter
 
-    now = datetime.now()
-    samples = []
+    from .devices import devices_db
 
-    for i in range(6):
-        base_time = now - timedelta(hours=6 - i)
-        base_rms = 1.8 + i * 0.15
-        result = AnalysisResult(
-            id=_analysis_id_counter + i,
-            device_id=1,
-            data_id=100 + i,
-            channel=0,
-            timestamp=base_time,
-            time_domain=TimeDomainFeatures(
-                rms=base_rms,
-                peak=base_rms * 2.5,
-                peak_to_peak=base_rms * 4.8,
-                crest_factor=2.5 + i * 0.1,
-                kurtosis=3.0 + i * 0.3,
-                skewness=0.1 + i * 0.05,
-                mean=0.02 + i * 0.01,
-                variance=base_rms ** 2,
-                standard_deviation=base_rms,
-            ),
-            frequency_domain=FrequencyDomainFeatures(
-                dominant_frequency=50.0 + i * 0.5,
-                dominant_amplitude=0.8 + i * 0.1,
-                frequency_bands={
-                    "low_0-100Hz": 0.6 + i * 0.05,
-                    "mid_100-500Hz": 0.3 + i * 0.03,
-                    "high_500-1000Hz": 0.15 + i * 0.02,
-                },
-                spectral_centroid=150.0 + i * 5,
-                spectral_rolloff=400.0 + i * 10,
-                spectral_spread=80.0 + i * 3,
-            ),
-            health_index=90 - i * 3,
-            status="正常" if i < 4 else ("注意" if i < 5 else "异常"),
-            anomalies=["峭度值偏高"] if i >= 4 else [],
-            created_at=base_time,
-        )
-        samples.append(result)
+    now = datetime.now()
+
+    # 每台设备24小时的健康指数曲线参数:基线 / 振幅 / 相位 / 主频基准
+    profiles = {
+        1: {"base": 90.0, "amp": 5.0, "phase": 0.0, "freq": 50.0},
+        2: {"base": 78.0, "amp": 9.0, "phase": 1.2, "freq": 53.0},
+        3: {"base": 62.0, "amp": 16.0, "phase": 0.6, "freq": 49.0},
+        4: {"base": 70.0, "amp": 14.0, "phase": 2.4, "freq": 56.0},
+    }
+
+    samples = []
+    next_id = _analysis_id_counter
+
+    for device in devices_db:
+        profile = profiles.get(device.id, profiles[3])
+
+        for h in range(24):
+            base_time = now - timedelta(hours=23 - h)
+
+            health = profile["base"] + profile["amp"] * math.sin(
+                2 * math.pi * h / 24.0 * 1.5 + profile["phase"]
+            )
+            health = max(30.0, min(98.0, round(health, 1)))
+
+            rms = 0.6 + (100.0 - health) / 70.0 * 3.9
+            peak = rms * 2.5
+            peak_to_peak = rms * 4.8
+            crest_factor = 2.5 + (100.0 - health) / 100.0 * 2.5
+            kurtosis = 3.0 + (100.0 - health) / 100.0 * 5.0
+            dominant_frequency = profile["freq"] + h * 0.15
+
+            if health >= 80:
+                status_text = "良好"
+                anomalies = []
+            elif health >= 60:
+                status_text = "正常"
+                anomalies = []
+            elif health >= 40:
+                status_text = "注意"
+                anomalies = ["RMS值超过警告阈值"]
+            else:
+                status_text = "异常"
+                anomalies = ["RMS值严重超标", "峭度值偏高"]
+
+            result = AnalysisResult(
+                id=next_id,
+                device_id=device.id,
+                data_id=100 + h,
+                channel=0,
+                timestamp=base_time,
+                time_domain=TimeDomainFeatures(
+                    rms=round(rms, 4),
+                    peak=round(peak, 4),
+                    peak_to_peak=round(peak_to_peak, 4),
+                    crest_factor=round(crest_factor, 4),
+                    kurtosis=round(kurtosis, 4),
+                    skewness=round(0.1 + h * 0.005, 4),
+                    mean=0.02,
+                    variance=round(rms ** 2, 4),
+                    standard_deviation=round(rms, 4),
+                ),
+                frequency_domain=FrequencyDomainFeatures(
+                    dominant_frequency=round(dominant_frequency, 2),
+                    dominant_amplitude=round(0.8 + (100.0 - health) / 100.0 * 0.6, 4),
+                    frequency_bands={
+                        "low_0-100Hz": round(0.6 + h * 0.01, 4),
+                        "mid_100-500Hz": round(0.3 + h * 0.005, 4),
+                        "high_500-1000Hz": round(0.15 + h * 0.003, 4),
+                    },
+                    spectral_centroid=round(150.0 + h * 3, 2),
+                    spectral_rolloff=round(400.0 + h * 5, 2),
+                    spectral_spread=round(80.0 + h * 2, 2),
+                ),
+                health_index=health,
+                status=status_text,
+                anomalies=anomalies,
+                created_at=base_time,
+            )
+            samples.append(result)
+            next_id += 1
 
     analysis_results_db.extend(samples)
-    _analysis_id_counter += len(samples)
+    _analysis_id_counter = next_id
 
 
 _init_sample_analysis()

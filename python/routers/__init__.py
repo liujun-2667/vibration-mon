@@ -7,6 +7,7 @@ from .analysis import router as analysis_router
 from .data import router as data_router
 from .reports import router as reports_router
 from .diagnosis import router as diagnosis_router
+from .monitor import router as monitor_router
 
 api_router = APIRouter(prefix="/api/v1")
 
@@ -17,6 +18,7 @@ api_router.include_router(analysis_router, prefix="/analysis", tags=["数据分�
 api_router.include_router(data_router, prefix="/data", tags=["数据管理"])
 api_router.include_router(reports_router, prefix="/reports", tags=["报告生成"])
 api_router.include_router(diagnosis_router, prefix="/diagnosis", tags=["智能诊断"])
+api_router.include_router(monitor_router, prefix="/monitor", tags=["实时监控"])
 
 __all__ = [
     "api_router",
@@ -27,4 +29,5 @@ __all__ = [
     "data_router",
     "reports_router",
     "diagnosis_router",
+    "monitor_router",
 ]

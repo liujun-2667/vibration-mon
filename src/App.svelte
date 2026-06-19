@@ -16,6 +16,7 @@
   import DiagnosisWorkbench from './pages/DiagnosisWorkbench.svelte';
   import DiagnosisDetail from './pages/DiagnosisDetail.svelte';
   import KnowledgeBase from './pages/KnowledgeBase.svelte';
+  import RealtimeMonitor from './pages/RealtimeMonitor.svelte';
 
   let currentPage = 'dashboard';
   let sidebarCollapsed = false;
@@ -26,6 +27,7 @@
 
   const menuItems = [
     { id: 'dashboard', name: '监控概览', icon: '📊' },
+    { id: 'realtime-monitor', name: '实时监控大屏', icon: '🖥️' },
     { id: 'devices', name: '设备管理', icon: '📡' },
     { id: 'analysis', name: '数据分析', icon: '📈' },
     { id: 'device-compare', name: '设备对比', icon: '🔬' },
@@ -244,6 +246,8 @@
     <div class="page-content">
       {#if currentPage === 'dashboard'}
         <Dashboard />
+      {:else if currentPage === 'realtime-monitor'}
+        <RealtimeMonitor />
       {:else if currentPage === 'analysis'}
         <DeviceAnalysis deviceId={selectedDeviceId || $currentDevice?.id || 1} />
       {:else if currentPage === 'device-compare'}
