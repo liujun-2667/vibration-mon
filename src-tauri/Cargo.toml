@@ -1,0 +1,24 @@
+[package]
+name = "vibration-monitor"
+version = "1.0.0"
+description = "设备振动频谱在线监测与预警系统"
+authors = ["you"]
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib", "cdylib", "rlib"]
+
+[build-dependencies]
+tauri-build = { version = "1.5", features = [] }
+
+[dependencies]
+tauri = { version = "1.5", features = ["shell-open", "notification", "shell-execute", "shell-sidecar", "path-all", "fs-all"] }
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+tokio = { version = "1", features = ["full"] }
+reqwest = { version = "0.11", features = ["json", "stream"] }
+futures-util = "0.3"
+
+[features]
+default = ["custom-protocol"]
+custom-protocol = ["tauri/custom-protocol"]
