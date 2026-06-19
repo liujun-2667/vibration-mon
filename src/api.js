@@ -18,7 +18,7 @@ async function request(url, options = {}) {
     const data = await response.json();
 
     if (!response.ok) {
-      throw new Error(data.message || `HTTP error! status: ${response.status}`);
+      throw new Error(data.message || data.detail || `HTTP error! status: ${response.status}`);
     }
 
     return data;
@@ -140,11 +140,12 @@ export const alarmsApi = {
       method: 'PUT',
     }),
 
-  batchAcknowledgeAlarms: (recordIds) =>
-    request('/alarms/records/batch-acknowledge', {
+  batchAcknowledgeAlarms: (recordIds) => {
+    const query = recordIds.map(id => `record_ids=${id}`).join('&');
+    return request(`/alarms/records/batch-acknowledge?${query}`, {
       method: 'POST',
-      body: JSON.stringify(recordIds),
-    }),
+    });
+  },
 
   getAlarmSummary: (params = {}) => {
     const query = new URLSearchParams(params).toString();
@@ -155,57 +156,137 @@ export const alarmsApi = {
 export const dataApi = {
   getVibrationData: (params = {}) => {
     const query = new URLSearchParams(params).toString();
-    return request(`/data/vibration${query ? `?${query}` : ''}`);
+    return request(`/data${query ? `?${query}` : ''}`);
   },
 
-  getLatestVibrationData: (deviceId) =>
-    request(`/data/vibration/latest/${deviceId}`),
+  getVibrationDataDetail: (dataId) => request(`/data/${dataId}`),
+
+  uploadVibrationData: (data) =>
+    request('/data', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  deleteVibrationData: (dataId) =>
+    request(`/data/${dataId}`, {
+      method: 'DELETE',
+    }),
+
+  getLatestVibrationData: (deviceId, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/data/${deviceId}/latest${query ? `?${query}` : ''}`);
+  },
+
+  batchUploadData: (dataList) =>
+    request('/data/batch', {
+      method: 'POST',
+      body: JSON.stringify(dataList),
+    }),
+
+  exportData: (deviceId, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/data/${deviceId}/export${query ? `?${query}` : ''}`);
+  },
+
+  getDataStatistics: (deviceId, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/data/${deviceId}/statistics${query ? `?${query}` : ''}`);
+  },
+
+  cleanupOldData: (deviceId, daysToKeep) =>
+    request(`/data/${deviceId}/cleanup?days_to_keep=${daysToKeep}`, {
+      method: 'DELETE',
+    }),
 
   getTimeDomainFeatures: (params = {}) => {
-    const query = new URLSearchParams(params).toString();
-    return request(`/data/features/time-domain${query ? `?${query}` : ''}`);
+    console.warn('getTimeDomainFeatures is deprecated, use analysisApi.analyzeVibration instead');
+    return Promise.resolve({ success: true, data: null, message: 'Deprecated API' });
   },
 
   getFrequencyDomainFeatures: (params = {}) => {
-    const query = new URLSearchParams(params).toString();
-    return request(`/data/features/frequency-domain${query ? `?${query}` : ''}`);
+    console.warn('getFrequencyDomainFeatures is deprecated, use analysisApi.analyzeVibration instead');
+    return Promise.resolve({ success: true, data: null, message: 'Deprecated API' });
   },
 
   getTrendData: (params = {}) => {
-    const query = new URLSearchParams(params).toString();
-    return request(`/data/trend${query ? `?${query}` : ''}`);
+    console.warn('getTrendData is deprecated, use analysisApi.getAnalysisTrend instead');
+    return analysisApi.getAnalysisTrend(params.device_id, params);
   },
 };
 
 export const analysisApi = {
-  analyzeTimeDomain: (deviceId, data) =>
-    request(`/analysis/time-domain/${deviceId}`, {
+  analyzeVibration: (analysisRequest) =>
+    request('/analysis', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(analysisRequest),
     }),
 
-  analyzeFrequencyDomain: (deviceId, data) =>
-    request(`/analysis/frequency-domain/${deviceId}`, {
+  getAnalysisResults: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/analysis/results${query ? `?${query}` : ''}`);
+  },
+
+  getAnalysisResult: (resultId) => request(`/analysis/results/${resultId}`),
+
+  getLatestAnalysis: (deviceId) => request(`/analysis/${deviceId}/latest`),
+
+  getAnalysisTrend: (deviceId, params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/analysis/${deviceId}/trend${query ? `?${query}` : ''}`);
+  },
+
+  batchAnalyze: (requests) =>
+    request('/analysis/batch', {
       method: 'POST',
-      body: JSON.stringify(data),
+      body: JSON.stringify(requests),
     }),
 
-  getHealthIndex: (deviceId) =>
-    request(`/analysis/health/${deviceId}`),
+  compareFeatures: (deviceIds, params = {}) => {
+    const idParams = deviceIds.map(id => `device_ids=${id}`).join('&');
+    const otherParams = new URLSearchParams(params).toString();
+    const query = [idParams, otherParams].filter(Boolean).join('&');
+    return request(`/analysis/features/compare${query ? `?${query}` : ''}`);
+  },
 
-  getFaultDiagnosis: (deviceId) =>
-    request(`/analysis/diagnosis/${deviceId}`),
+  analyzeTimeDomain: (deviceId, data) => {
+    console.warn('analyzeTimeDomain is deprecated, use analyzeVibration instead');
+    return analysisApi.analyzeVibration({
+      device_id: deviceId,
+      data: data.data,
+      sample_rate: data.sample_rate || 10000,
+      channel: data.channel || 0,
+    });
+  },
 
-  compareDevices: (deviceIds) =>
-    request('/analysis/compare', {
-      method: 'POST',
-      body: JSON.stringify(deviceIds),
-    }),
+  analyzeFrequencyDomain: (deviceId, data) => {
+    console.warn('analyzeFrequencyDomain is deprecated, use analyzeVibration instead');
+    return analysisApi.analyzeVibration({
+      device_id: deviceId,
+      data: data.data,
+      sample_rate: data.sample_rate || 10000,
+      channel: data.channel || 0,
+    });
+  },
+
+  getHealthIndex: (deviceId) => {
+    console.warn('getHealthIndex is deprecated, use getLatestAnalysis instead');
+    return analysisApi.getLatestAnalysis(deviceId);
+  },
+
+  getFaultDiagnosis: (deviceId) => {
+    console.warn('getFaultDiagnosis is deprecated, use getLatestAnalysis instead');
+    return analysisApi.getLatestAnalysis(deviceId);
+  },
+
+  compareDevices: (deviceIds) => {
+    console.warn('compareDevices is deprecated, use compareFeatures instead');
+    return analysisApi.compareFeatures(deviceIds);
+  },
 };
 
 export const reportsApi = {
   generateReport: (reportData) =>
-    request('/reports/generate', {
+    request('/reports', {
       method: 'POST',
       body: JSON.stringify(reportData),
     }),
@@ -219,10 +300,18 @@ export const reportsApi = {
 
   downloadReport: (reportId) => `${BASE_URL}/reports/${reportId}/download`,
 
+  previewReport: (reportData) =>
+    request('/reports/preview', {
+      method: 'POST',
+      body: JSON.stringify(reportData),
+    }),
+
   deleteReport: (reportId) =>
     request(`/reports/${reportId}`, {
       method: 'DELETE',
     }),
+
+  getReportTemplates: () => request('/reports/templates/list'),
 };
 
 export function createWebSocket(deviceId, onMessage, onError, onClose) {

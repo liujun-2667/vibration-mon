@@ -78,6 +78,12 @@
   --sidebar-width: 260px;
   --sidebar-width-collapsed: 64px;
   --header-height: 64px;
+
+  /* 组件动态颜色变量 */
+  --metric-color: var(--color-primary);
+  --level-color: var(--color-warning);
+  --level-bg: var(--color-warning-lighter);
+  --type-color: var(--color-primary);
 }
 
 * {

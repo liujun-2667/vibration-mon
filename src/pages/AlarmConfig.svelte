@@ -14,28 +14,32 @@
       label: '绝对阈值',
       icon: '📏',
       desc: '当指标超过固定阈值时触发告警',
-      color: '#3b82f6'
+      color: '#3b82f6',
+      bgColor: '#dbeafe'
     },
     {
       value: 'relative_change',
       label: '相对变化',
       icon: '📈',
       desc: '当指标相比基线变化超过百分比时触发',
-      color: '#8b5cf6'
+      color: '#8b5cf6',
+      bgColor: '#ede9fe'
     },
     {
       value: 'frequency_threshold',
       label: '频率阈值',
       icon: '📊',
       desc: '当特定频段的幅值超过阈值时触发',
-      color: '#10b981'
+      color: '#10b981',
+      bgColor: '#d1fae5'
     },
     {
       value: 'trend_rising',
       label: '趋势上升',
       icon: '↗️',
       desc: '当指标呈现持续上升趋势时触发',
-      color: '#ef4444'
+      color: '#ef4444',
+      bgColor: '#fee2e2'
     }
   ];
 
@@ -615,7 +619,7 @@
                       {#each ruleTypes as type}
                         <button
                           class="type-btn {condition.ruleType === type.value ? 'active' : ''}"
-                          style="--type-color: {type.color}"
+                          style="--type-color: {type.color}; --type-bg: {type.bgColor}"
                           on:click={() => changeConditionType(index, type.value)}
                         >
                           <span class="type-icon">{type.icon}</span>
@@ -1412,7 +1416,7 @@
 
   .type-btn.active {
     border-color: var(--type-color);
-    background: var(--type-color) + '15';
+    background: var(--type-bg);
     color: var(--type-color);
   }
 

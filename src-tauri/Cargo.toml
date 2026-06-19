@@ -5,14 +5,11 @@ description = "设备振动频谱在线监测与预警系统"
 authors = ["you"]
 edition = "2021"
 
-[lib]
-crate-type = ["staticlib", "cdylib", "rlib"]
-
 [build-dependencies]
 tauri-build = { version = "1.5", features = [] }
 
 [dependencies]
-tauri = { version = "1.5", features = ["shell-open", "notification", "shell-execute", "shell-sidecar", "path-all", "fs-all"] }
+tauri = { version = "1.5", features = ["shell-open", "shell-execute", "shell-sidecar", "shell-all", "notification-all", "path-all", "fs-all", "dialog-all", "window-all"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 tokio = { version = "1", features = ["full"] }

@@ -39,7 +39,7 @@ async fn proxy_request(
 }
 
 #[tauri::command]
-fn start_python_backend(state: tauri::State<AppState>) -> Result<String, String> {
+fn start_python_backend(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let mut process_guard = state.python_process.lock().unwrap();
     
     if process_guard.is_some() {
@@ -68,7 +68,7 @@ fn start_python_backend(state: tauri::State<AppState>) -> Result<String, String>
 }
 
 #[tauri::command]
-fn stop_python_backend(state: tauri::State<AppState>) -> Result<String, String> {
+fn stop_python_backend(state: tauri::State<'_, AppState>) -> Result<String, String> {
     let mut process_guard = state.python_process.lock().unwrap();
     
     if let Some(mut child) = process_guard.take() {
@@ -90,11 +90,8 @@ fn main() {
             stop_python_backend
         ])
         .setup(|app| {
-            let app_handle = app.handle();
-            tauri::async_runtime::spawn(async move {
-                let state = app_handle.state::<AppState>();
-                let _ = start_python_backend(state);
-            });
+            let state = app.state::<AppState>();
+            let _ = start_python_backend(state);
             Ok(())
         })
         .run(tauri::generate_context!())
