@@ -13,7 +13,7 @@
     Filler,
   } from 'chart.js';
   import annotationPlugin from 'chartjs-plugin-annotation';
-  import { analysisApi } from '../api.js';
+  import { analysisApi, monitorApi } from '../api.js';
 
   ChartJS.register(
     CategoryScale,
@@ -36,6 +36,12 @@
   let labels = [];
   let values = [];
   let stats = { min: null, max: null, avg: null };
+
+  let showReportModal = false;
+  let reportLoading = false;
+  let reportData = null;
+  let reportError = '';
+  let copySuccess = false;
 
   function pad(n) {
     return String(n).padStart(2, '0');
@@ -121,6 +127,46 @@
       if (!destroyed) {
         loading = false;
       }
+    }
+  }
+
+  async function handleExportReport() {
+    if (deviceId == null) return;
+    reportLoading = true;
+    reportError = '';
+    reportData = null;
+    showReportModal = true;
+    try {
+      const resp = await monitorApi.exportReport(deviceId, 24);
+      if (resp && resp.success && resp.data) {
+        reportData = resp.data;
+      } else {
+        reportError = resp?.message || '报告生成失败';
+      }
+    } catch (e) {
+      reportError = e.message || '报告生成失败';
+    } finally {
+      reportLoading = false;
+    }
+  }
+
+  function closeReportModal() {
+    showReportModal = false;
+    reportData = null;
+    reportError = '';
+    copySuccess = false;
+  }
+
+  async function copyToClipboard() {
+    if (!reportData) return;
+    try {
+      await navigator.clipboard.writeText(JSON.stringify(reportData, null, 2));
+      copySuccess = true;
+      setTimeout(() => {
+        copySuccess = false;
+      }, 2000);
+    } catch (e) {
+      console.error('复制失败:', e);
     }
   }
 
@@ -268,9 +314,42 @@
         <span class="legend-item"><span class="legend-swatch danger"></span>健康指数 &lt; 60 区间</span>
         <span class="legend-hint">近24小时·按小时聚合</span>
       </div>
+
+      <div class="export-section">
+        <button class="export-btn" disabled={deviceId == null} on:click={handleExportReport}>
+          <span class="export-icon">📄</span>
+          <span>导出报告</span>
+        </button>
+      </div>
     </div>
   {/if}
 </aside>
+
+{#if showReportModal}
+  <div class="modal-overlay" on:click|self={closeReportModal}>
+    <div class="modal-container">
+      <div class="modal-header">
+        <h3 class="modal-title">设备健康报告</h3>
+        <button class="modal-close" on:click={closeReportModal} title="关闭">✕</button>
+      </div>
+      <div class="modal-body">
+        {#if reportLoading}
+          <div class="modal-state">报告生成中…</div>
+        {:else if reportError}
+          <div class="modal-state error">{reportError}</div>
+        {:else if reportData}
+          <pre class="report-json">{JSON.stringify(reportData, null, 2)}</pre>
+        {/if}
+      </div>
+      <div class="modal-footer">
+        <button class="btn-secondary" on:click={closeReportModal}>关闭</button>
+        <button class="btn-primary" disabled={!reportData || reportLoading} on:click={copyToClipboard}>
+          {copySuccess ? '✓ 已复制' : '复制到剪贴板'}
+        </button>
+      </div>
+    </div>
+  </div>
+{/if}
 
 <style>
   .trend-sidebar {
@@ -416,5 +495,170 @@
 
   .legend-hint {
     color: var(--color-gray-400);
+  }
+
+  .export-section {
+    border-top: 1px solid var(--color-gray-100);
+    padding-top: var(--spacing-3);
+  }
+
+  .export-btn {
+    width: 100%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-2) var(--spacing-3);
+    background: var(--color-primary);
+    color: white;
+    border: none;
+    border-radius: var(--radius-md);
+    cursor: pointer;
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    transition: background var(--transition-fast);
+  }
+
+  .export-btn:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+
+  .export-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .export-icon {
+    font-size: 16px;
+  }
+
+  .modal-overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.5);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    z-index: 1000;
+  }
+
+  .modal-container {
+    width: 90%;
+    max-width: 600px;
+    max-height: 80vh;
+    background: var(--color-white);
+    border-radius: var(--radius-lg);
+    box-shadow: var(--shadow-xl);
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
+  }
+
+  .modal-header {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    padding: var(--spacing-4) var(--spacing-5);
+    border-bottom: 1px solid var(--color-gray-100);
+  }
+
+  .modal-title {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    font-weight: 600;
+    color: var(--color-gray-800);
+  }
+
+  .modal-close {
+    background: transparent;
+    border: none;
+    font-size: var(--font-size-base);
+    color: var(--color-gray-500);
+    cursor: pointer;
+    padding: var(--spacing-1);
+    border-radius: var(--radius-sm);
+    line-height: 1;
+  }
+
+  .modal-close:hover {
+    background: var(--color-gray-100);
+    color: var(--color-gray-700);
+  }
+
+  .modal-body {
+    flex: 1;
+    overflow: auto;
+    padding: var(--spacing-4) var(--spacing-5);
+  }
+
+  .modal-state {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    height: 200px;
+    color: var(--color-gray-400);
+    font-size: var(--font-size-sm);
+  }
+
+  .modal-state.error {
+    color: var(--color-danger);
+  }
+
+  .report-json {
+    margin: 0;
+    padding: var(--spacing-3);
+    background: var(--color-gray-50);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-xs);
+    line-height: 1.5;
+    color: var(--color-gray-800);
+    white-space: pre-wrap;
+    word-break: break-all;
+    font-family: 'Monaco', 'Menlo', 'Consolas', monospace;
+  }
+
+  .modal-footer {
+    display: flex;
+    justify-content: flex-end;
+    gap: var(--spacing-3);
+    padding: var(--spacing-3) var(--spacing-5);
+    border-top: 1px solid var(--color-gray-100);
+    background: var(--color-gray-50);
+  }
+
+  .btn-primary,
+  .btn-secondary {
+    padding: var(--spacing-2) var(--spacing-4);
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-sm);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    border: none;
+  }
+
+  .btn-primary {
+    background: var(--color-primary);
+    color: white;
+  }
+
+  .btn-primary:hover:not(:disabled) {
+    background: var(--color-primary-dark);
+  }
+
+  .btn-primary:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+  }
+
+  .btn-secondary {
+    background: var(--color-white);
+    color: var(--color-gray-700);
+    border: 1px solid var(--color-gray-300);
+  }
+
+  .btn-secondary:hover {
+    background: var(--color-gray-50);
+    border-color: var(--color-gray-400);
   }
 </style>

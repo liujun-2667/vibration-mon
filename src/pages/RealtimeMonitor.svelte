@@ -9,6 +9,12 @@
   const MAX_SELECTED = 4;
   const TOAST_DURATION = 8000;
 
+  const LAYOUT_OPTIONS = [
+    { value: 'grid-2', label: '网格2列', icon: '⊞' },
+    { value: 'grid-1', label: '网格1列', icon: '⬛' },
+    { value: 'compact', label: '紧凑列表', icon: '≡' },
+  ];
+
   let allDevices = [];
   let selectedIds = [];
   let summaryMap = {};
@@ -17,6 +23,7 @@
   let activeToastMap = {};
   let toastTimers = {};
   let toastSeq = 1;
+  let layout = 'grid-2';
 
   $: trendDevice = allDevices.find((d) => d.id === trendDeviceId) || {};
 
@@ -127,6 +134,10 @@
     }
   }
 
+  function setLayout(value) {
+    layout = value;
+  }
+
   onMount(async () => {
     await loadDevices();
     await loadSummary();
@@ -149,27 +160,45 @@
         <span>设备选择</span>
         <span class="selection-count">已选 {selectedIds.length}/{MAX_SELECTED}</span>
       </div>
-      <div class="device-chips">
-        {#each allDevices as device (device.id)}
-          <label
-            class="device-chip"
-            class:checked={selectedIds.includes(device.id)}
-            class:disabled={!selectedIds.includes(device.id) && selectedIds.length >= MAX_SELECTED}
-          >
-            <input
-              type="checkbox"
-              checked={selectedIds.includes(device.id)}
-              disabled={!selectedIds.includes(device.id) && selectedIds.length >= MAX_SELECTED}
-              on:change={() => toggleDevice(device.id)}
-            />
-            <span class="chip-dot {getChipStatus(device.id)}"></span>
-            <span class="chip-name">{device.name}</span>
-            <span class="chip-code">{device.code}</span>
-          </label>
-        {/each}
-        {#if allDevices.length === 0}
-          <span class="empty-hint">暂无设备</span>
-        {/if}
+      <div class="selection-row">
+        <div class="device-chips">
+          {#each allDevices as device (device.id)}
+            <label
+              class="device-chip"
+              class:checked={selectedIds.includes(device.id)}
+              class:disabled={!selectedIds.includes(device.id) && selectedIds.length >= MAX_SELECTED}
+            >
+              <input
+                type="checkbox"
+                checked={selectedIds.includes(device.id)}
+                disabled={!selectedIds.includes(device.id) && selectedIds.length >= MAX_SELECTED}
+                on:change={() => toggleDevice(device.id)}
+              />
+              <span class="chip-dot {getChipStatus(device.id)}"></span>
+              <span class="chip-name">{device.name}</span>
+              <span class="chip-code">{device.code}</span>
+            </label>
+          {/each}
+          {#if allDevices.length === 0}
+            <span class="empty-hint">暂无设备</span>
+          {/if}
+        </div>
+        <div class="layout-switcher">
+          <span class="layout-label">布局</span>
+          <div class="layout-buttons">
+            {#each LAYOUT_OPTIONS as opt (opt.value)}
+              <button
+                class="layout-btn"
+                class:active={layout === opt.value}
+                on:click={() => setLayout(opt.value)}
+                title={opt.label}
+              >
+                <span class="layout-icon">{opt.icon}</span>
+                <span class="layout-text">{opt.label}</span>
+              </button>
+            {/each}
+          </div>
+        </div>
       </div>
     </section>
 
@@ -180,7 +209,7 @@
           <p>请在上方勾选需要监控的设备(最多 {MAX_SELECTED} 台)</p>
         </div>
       {:else}
-        <div class="cards-grid">
+        <div class="cards-grid" data-layout={layout}>
           {#each selectedDevices as device (device.id)}
             <div
               class="card-wrapper"
@@ -190,8 +219,8 @@
               role="button"
               tabindex="0"
             >
-              <DeviceMonitorCard {device} summary={summaryMap[device.id] || null} on:healthdrop={handleHealthDrop} />
-              {#if trendDeviceId === device.id}
+              <DeviceMonitorCard {device} summary={summaryMap[device.id] || null} {layout} on:healthdrop={handleHealthDrop} />
+              {#if trendDeviceId === device.id && layout !== 'compact'}
                 <span class="focus-badge">趋势焦点</span>
               {/if}
             </div>
@@ -243,10 +272,19 @@
     font-size: var(--font-size-xs);
   }
 
+  .selection-row {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: var(--spacing-4);
+  }
+
   .device-chips {
     display: flex;
     flex-wrap: wrap;
     gap: var(--spacing-2);
+    flex: 1;
+    min-width: 0;
   }
 
   .device-chip {
@@ -305,6 +343,57 @@
     font-size: var(--font-size-xs);
   }
 
+  .layout-switcher {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    flex-shrink: 0;
+  }
+
+  .layout-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-gray-500);
+    font-weight: 500;
+  }
+
+  .layout-buttons {
+    display: flex;
+    background: var(--color-gray-100);
+    border-radius: var(--radius-md);
+    padding: 2px;
+    gap: 2px;
+  }
+
+  .layout-btn {
+    display: flex;
+    align-items: center;
+    gap: 4px;
+    padding: 4px 10px;
+    border: none;
+    background: transparent;
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: var(--font-size-xs);
+    color: var(--color-gray-600);
+    transition: all var(--transition-fast);
+  }
+
+  .layout-btn:hover {
+    background: var(--color-gray-200);
+  }
+
+  .layout-btn.active {
+    background: var(--color-white);
+    color: var(--color-primary);
+    box-shadow: var(--shadow-sm);
+    font-weight: 600;
+  }
+
+  .layout-icon {
+    font-size: 14px;
+    line-height: 1;
+  }
+
   .cards-area {
     flex: 1;
     overflow: auto;
@@ -313,8 +402,21 @@
 
   .cards-grid {
     display: grid;
-    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
     gap: var(--spacing-4);
+  }
+
+  .cards-grid[data-layout='grid-2'] {
+    grid-template-columns: repeat(auto-fit, minmax(420px, 1fr));
+  }
+
+  .cards-grid[data-layout='grid-1'] {
+    grid-template-columns: 1fr;
+  }
+
+  .cards-grid[data-layout='compact'] {
+    display: flex;
+    flex-direction: column;
+    gap: var(--spacing-2);
   }
 
   .card-wrapper {
@@ -330,6 +432,10 @@
     border: 2px solid var(--color-primary);
     border-radius: var(--radius-lg);
     pointer-events: none;
+  }
+
+  .cards-grid[data-layout='compact'] .card-wrapper.focus::after {
+    border-radius: var(--radius-md);
   }
 
   .focus-badge {
@@ -362,8 +468,19 @@
   }
 
   @media (max-width: 1200px) {
-    .cards-grid {
+    .cards-grid[data-layout='grid-2'] {
       grid-template-columns: 1fr;
+    }
+  }
+
+  @media (max-width: 900px) {
+    .selection-row {
+      flex-direction: column;
+      align-items: flex-start;
+    }
+
+    .layout-switcher {
+      align-self: flex-end;
     }
   }
 </style>

@@ -459,6 +459,8 @@ export const monitorApi = {
   getRealtimeSummary: () => request('/monitor/realtime-summary'),
 
   getDeviceState: (deviceId) => request(`/monitor/${deviceId}/state`),
+
+  exportReport: (deviceId, hours = 24) => request(`/monitor/export-report?device_id=${deviceId}&hours=${hours}`),
 };
 
 export const diagnosisApi = {

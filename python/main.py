@@ -142,7 +142,7 @@ def _device_simulator(device_id: int):
 async def _push_device_data(device_id: int, queue: asyncio.Queue):
     """连接建立后持续生成振动采集数据并推送到客户端,同时更新设备状态缓存。"""
     from signal_simulator import Severity
-    from routers.monitor import update_device_cache
+    from routers.monitor import update_device_cache, _compute_vibration_level, _compute_data_quality
     from routers.analysis import (
         _extract_time_domain_features,
         _extract_frequency_domain_features,
@@ -183,6 +183,9 @@ async def _push_device_data(device_id: int, queue: asyncio.Queue):
             health -= max(0.0, td.rms - 1.5) * 5.0
             health = max(35.0, min(100.0, round(health, 1)))
 
+            vibration_level = _compute_vibration_level(td.rms)
+            data_quality = _compute_data_quality(device_id)
+
             data_list = signal.tolist()
             payload = {
                 "type": "vibration_data",
@@ -193,6 +196,8 @@ async def _push_device_data(device_id: int, queue: asyncio.Queue):
                 "rms": round(td.rms, 4),
                 "dominant_frequency": round(fd.dominant_frequency, 2),
                 "health_index": health,
+                "vibration_level": vibration_level,
+                "data_quality": round(data_quality, 1) if data_quality is not None else None,
             }
             await queue.put(payload)
             update_device_cache(
@@ -202,6 +207,7 @@ async def _push_device_data(device_id: int, queue: asyncio.Queue):
                 rms=round(td.rms, 4),
                 dominant_frequency=round(fd.dominant_frequency, 2),
                 health_index=health,
+                timestamp=ts,
             )
     except asyncio.CancelledError:
         logger.info(f"设备 {device_id} 推送任务已取消")
