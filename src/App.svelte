@@ -24,6 +24,7 @@
   let ws = null;
   let selectedDeviceId = null;
   let selectedTaskId = null;
+  let healthCheckInterval = null;
 
   const menuItems = [
     { id: 'dashboard', name: '监控概览', icon: '📊' },
@@ -120,16 +121,20 @@
     checkBackend();
     loadDevices();
 
-    const healthCheckInterval = setInterval(checkBackend, 30000);
+    healthCheckInterval = setInterval(checkBackend, 30000);
+  });
 
-    onDestroy(() => {
-      window.removeEventListener('hashchange', handleHashChange);
-      window.removeEventListener('navigate', handleNavigate);
+  onDestroy(() => {
+    window.removeEventListener('hashchange', handleHashChange);
+    window.removeEventListener('navigate', handleNavigate);
+    if (healthCheckInterval) {
       clearInterval(healthCheckInterval);
-      if (ws) {
-        ws.close();
-      }
-    });
+      healthCheckInterval = null;
+    }
+    if (ws) {
+      ws.close();
+      ws = null;
+    }
   });
 
   function getStatusClass(status) {

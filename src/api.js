@@ -358,9 +358,11 @@ export function createReconnectingWebSocket(deviceId, { onMessage, onStatusChang
   let retryCount = 0;
   let closedByUser = false;
   let reconnectTimer = null;
+  let messageHandler = null;
+  let statusHandler = null;
 
   function setStatus(status) {
-    if (onStatusChange) onStatusChange(status);
+    if (statusHandler) statusHandler(status);
   }
 
   function computeDelay() {
@@ -395,7 +397,7 @@ export function createReconnectingWebSocket(deviceId, { onMessage, onStatusChang
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        if (onMessage) onMessage(data);
+        if (messageHandler) messageHandler(data);
       } catch (e) {
         console.error(`WebSocket 消息解析失败 device ${deviceId}:`, e);
       }
@@ -406,6 +408,12 @@ export function createReconnectingWebSocket(deviceId, { onMessage, onStatusChang
     };
 
     ws.onclose = () => {
+      if (ws) {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+      }
       ws = null;
       if (closedByUser) {
         setStatus('disconnected');
@@ -423,11 +431,24 @@ export function createReconnectingWebSocket(deviceId, { onMessage, onStatusChang
       reconnectTimer = null;
     }
     if (ws) {
-      ws.close();
+      try {
+        ws.onopen = null;
+        ws.onmessage = null;
+        ws.onerror = null;
+        ws.onclose = null;
+        ws.close();
+      } catch (e) {
+        // ignore close errors
+      }
       ws = null;
     }
+    messageHandler = null;
+    statusHandler = null;
     setStatus('disconnected');
   }
+
+  messageHandler = onMessage || null;
+  statusHandler = onStatusChange || null;
 
   connect();
 

@@ -194,6 +194,14 @@
     if (wsManager && typeof wsManager.disconnect === 'function') {
       wsManager.disconnect();
     }
+    wsManager = null;
+    segments = [];
+    chartLabels = [];
+    chartValues = [];
+    healthIndex = null;
+    rms = null;
+    dominantFrequency = null;
+    lastTimestamp = null;
   });
 
   function formatTime(iso) {

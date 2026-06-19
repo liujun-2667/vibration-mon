@@ -1,5 +1,5 @@
 <script>
-  import { onMount, onDestroy } from 'svelte';
+  import { onDestroy } from 'svelte';
   import { Line } from 'svelte-chartjs';
   import {
     Chart as ChartJS,
@@ -94,6 +94,7 @@
         hours: 24,
         metric: 'health_index',
       });
+      if (destroyed) return;
       if (resp && resp.success && resp.data) {
         const agg = aggregateByHour(resp.data.timestamps || [], resp.data.values || []);
         labels = agg.labels;
@@ -112,11 +113,14 @@
         values = [];
       }
     } catch (e) {
+      if (destroyed) return;
       errorMsg = e.message || '加载趋势失败';
       labels = [];
       values = [];
     } finally {
-      loading = false;
+      if (!destroyed) {
+        loading = false;
+      }
     }
   }
 
@@ -191,14 +195,24 @@
     },
   };
 
+  let destroyed = false;
   let fetchToken = 0;
   $: if (deviceId != null) {
     const token = ++fetchToken;
     fetchToken = token;
     loadData().then(() => {
-      if (token !== fetchToken) return;
+      if (destroyed || token !== fetchToken) return;
     });
   }
+
+  onDestroy(() => {
+    destroyed = true;
+    labels = [];
+    values = [];
+    stats = { min: null, max: null, avg: null };
+    errorMsg = '';
+    loading = false;
+  });
 </script>
 
 <aside class="trend-sidebar" class:collapsed>

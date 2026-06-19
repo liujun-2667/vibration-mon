@@ -1,5 +1,5 @@
 <script>
-  import { onMount } from 'svelte';
+  import { onMount, onDestroy } from 'svelte';
   import { devices as devicesStore } from '../store.js';
   import { monitorApi, devicesApi } from '../api.js';
   import DeviceMonitorCard from '../components/DeviceMonitorCard.svelte';
@@ -15,6 +15,7 @@
   let trendDeviceId = null;
   let toasts = [];
   let activeToastMap = {};
+  let toastTimers = {};
   let toastSeq = 1;
 
   $: trendDevice = allDevices.find((d) => d.id === trendDeviceId) || {};
@@ -92,10 +93,17 @@
     const id = toastSeq++;
     toasts = [...toasts, { id, deviceId, deviceName, healthIndex }];
     activeToastMap = { ...activeToastMap, [deviceId]: true };
-    setTimeout(() => removeToast(id, deviceId), TOAST_DURATION);
+    const timer = setTimeout(() => removeToast(id, deviceId), TOAST_DURATION);
+    toastTimers = { ...toastTimers, [id]: timer };
   }
 
   function removeToast(id, deviceId) {
+    if (toastTimers[id]) {
+      clearTimeout(toastTimers[id]);
+      const nextTimers = { ...toastTimers };
+      delete nextTimers[id];
+      toastTimers = nextTimers;
+    }
     toasts = toasts.filter((t) => t.id !== id);
     if (activeToastMap[deviceId]) {
       const next = { ...activeToastMap };
@@ -122,6 +130,15 @@
   onMount(async () => {
     await loadDevices();
     await loadSummary();
+  });
+
+  onDestroy(() => {
+    for (const id of Object.keys(toastTimers)) {
+      clearTimeout(toastTimers[id]);
+    }
+    toastTimers = {};
+    toasts = [];
+    activeToastMap = {};
   });
 </script>
 
