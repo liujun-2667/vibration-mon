@@ -89,6 +89,7 @@ async def root():
                 "analysis": "/api/v1/analysis",
                 "reports": "/api/v1/reports",
                 "data": "/api/v1/data",
+                "diagnosis": "/api/v1/diagnosis",
             },
         },
     )

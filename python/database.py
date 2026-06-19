@@ -15,6 +15,12 @@ from models import (
     FrequencyDomainFeatures,
     HHTFeatures,
     DeviceStatus,
+    DiagnosisTask,
+    DiagnosisStatus,
+    FeatureSnapshot,
+    FaultModeKnowledge,
+    FaultMatchResult,
+    SeverityLevel,
 )
 
 logger = logging.getLogger(__name__)
@@ -139,8 +145,117 @@ class Database:
                 "CREATE INDEX IF NOT EXISTS idx_analysis_device_time ON analysis_results(device_id, timestamp)"
             )
 
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS fault_mode_knowledge (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    name TEXT NOT NULL UNIQUE,
+                    description TEXT NOT NULL,
+                    key_frequency_features TEXT NOT NULL,
+                    severity_level TEXT NOT NULL DEFAULT 'medium',
+                    maintenance_action TEXT NOT NULL,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP
+                )
+                """
+            )
+
+            cursor.execute(
+                """
+                CREATE TABLE IF NOT EXISTS diagnosis_tasks (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    device_id INTEGER NOT NULL,
+                    device_name TEXT,
+                    start_time DATETIME NOT NULL,
+                    end_time DATETIME NOT NULL,
+                    status TEXT NOT NULL DEFAULT 'pending',
+                    feature_snapshot DICT,
+                    match_results LIST,
+                    created_at DATETIME DEFAULT CURRENT_TIMESTAMP,
+                    completed_at DATETIME
+                )
+                """
+            )
+
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_diagnosis_device_time ON diagnosis_tasks(device_id, created_at)"
+            )
+            cursor.execute(
+                "CREATE INDEX IF NOT EXISTS idx_diagnosis_status ON diagnosis_tasks(status)"
+            )
+
+            self._init_default_knowledge(cursor)
+
             conn.commit()
             logger.info(f"数据库初始化完成: {self.db_path}")
+
+    def _init_default_knowledge(self, cursor) -> None:
+        cursor.execute("SELECT COUNT(*) as count FROM fault_mode_knowledge")
+        count = cursor.fetchone()["count"]
+        if count > 0:
+            return
+
+        default_knowledge = [
+            {
+                "name": "转子不平衡",
+                "description": "1X频率幅值异常升高且相位稳定，径向振动大",
+                "key_frequency_features": "1X转频幅值显著升高，相位稳定",
+                "severity_level": "high",
+                "maintenance_action": "动平衡校正",
+            },
+            {
+                "name": "轴不对中",
+                "description": "2X频率显著且轴向振动大，联轴器两侧振动相位差180度",
+                "key_frequency_features": "2X转频占主导，轴向振动大",
+                "severity_level": "high",
+                "maintenance_action": "对中调整",
+            },
+            {
+                "name": "机械松动",
+                "description": "出现大量次谐波和高次谐波，振动具有随机性",
+                "key_frequency_features": "0.5X、1.5X等次谐波及高次谐波",
+                "severity_level": "medium",
+                "maintenance_action": "紧固检查",
+            },
+            {
+                "name": "滚动轴承外圈缺陷",
+                "description": "BPFO频率及其倍频出现，伴有边带调制",
+                "key_frequency_features": "BPFO(外圈故障频率)及其2倍、3倍频",
+                "severity_level": "high",
+                "maintenance_action": "更换轴承",
+            },
+            {
+                "name": "齿轮磨损",
+                "description": "啮合频率边带增宽，调制现象明显",
+                "key_frequency_features": "啮合频率FM及其边带",
+                "severity_level": "medium",
+                "maintenance_action": "检查润滑或更换齿轮",
+            },
+            {
+                "name": "共振",
+                "description": "某频率振幅随转速接近时急剧放大，通过临界转速时振动最大",
+                "key_frequency_features": "共振频率处幅值急剧变化",
+                "severity_level": "critical",
+                "maintenance_action": "避开共振区或修改结构",
+            },
+        ]
+
+        for item in default_knowledge:
+            cursor.execute(
+                """
+                INSERT INTO fault_mode_knowledge (
+                    name, description, key_frequency_features, severity_level, maintenance_action
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    item["name"],
+                    item["description"],
+                    item["key_frequency_features"],
+                    item["severity_level"],
+                    item["maintenance_action"],
+                ),
+            )
+
+        logger.info("初始化默认故障模式知识库完成")
 
     def insert_vibration_data(
         self, data_create: VibrationDataCreate
@@ -828,6 +943,235 @@ class Database:
 
         logger.info(f"数据导出完成: {output_path}, 共 {total} 条记录")
         return total
+
+    def create_diagnosis_task(
+        self,
+        device_id: int,
+        device_name: Optional[str],
+        start_time: datetime,
+        end_time: datetime,
+    ) -> DiagnosisTask:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                INSERT INTO diagnosis_tasks (
+                    device_id, device_name, start_time, end_time, status
+                ) VALUES (?, ?, ?, ?, ?)
+                """,
+                (
+                    device_id,
+                    device_name,
+                    start_time,
+                    end_time,
+                    DiagnosisStatus.PENDING.value,
+                ),
+            )
+            task_id = cursor.lastrowid
+            conn.commit()
+            return self.get_diagnosis_task(task_id)
+
+    def get_diagnosis_task(self, task_id: int) -> Optional[DiagnosisTask]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM diagnosis_tasks WHERE id = ?", (task_id,)
+            )
+            row = cursor.fetchone()
+            if row:
+                return self._row_to_diagnosis_task(row)
+            return None
+
+    def get_diagnosis_tasks(
+        self,
+        page: int = 1,
+        page_size: int = 10,
+        device_id: Optional[int] = None,
+        status: Optional[DiagnosisStatus] = None,
+    ) -> Tuple[List[DiagnosisTask], int]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            query = "SELECT * FROM diagnosis_tasks WHERE 1=1"
+            params: List[Any] = []
+
+            if device_id is not None:
+                query += " AND device_id = ?"
+                params.append(device_id)
+
+            if status:
+                query += " AND status = ?"
+                params.append(status.value)
+
+            count_query = query.replace("SELECT *", "SELECT COUNT(*)")
+            cursor.execute(count_query, params)
+            total = cursor.fetchone()[0]
+
+            query += " ORDER BY created_at DESC LIMIT ? OFFSET ?"
+            params.extend([page_size, (page - 1) * page_size])
+
+            cursor.execute(query, params)
+            rows = cursor.fetchall()
+
+            return (
+                [self._row_to_diagnosis_task(row) for row in rows],
+                total,
+            )
+
+    def update_diagnosis_task(
+        self,
+        task_id: int,
+        status: Optional[DiagnosisStatus] = None,
+        feature_snapshot: Optional[FeatureSnapshot] = None,
+        match_results: Optional[List[FaultMatchResult]] = None,
+    ) -> Optional[DiagnosisTask]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            update_fields = []
+            update_params = []
+
+            if status is not None:
+                update_fields.append("status = ?")
+                update_params.append(status.value)
+
+            if feature_snapshot is not None:
+                update_fields.append("feature_snapshot = ?")
+                update_params.append(feature_snapshot.model_dump(mode="json"))
+
+            if match_results is not None:
+                update_fields.append("match_results = ?")
+                update_params.append([m.model_dump(mode="json") for m in match_results])
+
+            if status == DiagnosisStatus.COMPLETED or (status is None and match_results is not None):
+                update_fields.append("completed_at = ?")
+                update_params.append(datetime.now())
+
+            if not update_fields:
+                return self.get_diagnosis_task(task_id)
+
+            update_params.append(task_id)
+
+            cursor.execute(
+                f"UPDATE diagnosis_tasks SET {', '.join(update_fields)} WHERE id = ?",
+                update_params,
+            )
+            conn.commit()
+
+            if cursor.rowcount == 0:
+                return None
+
+            return self.get_diagnosis_task(task_id)
+
+    def _row_to_diagnosis_task(self, row: sqlite3.Row) -> DiagnosisTask:
+        feature_snapshot = None
+        if row["feature_snapshot"]:
+            feature_snapshot = FeatureSnapshot.model_validate(row["feature_snapshot"])
+
+        match_results = None
+        if row["match_results"]:
+            match_results = [
+                FaultMatchResult.model_validate(m) for m in row["match_results"]
+            ]
+
+        return DiagnosisTask(
+            id=row["id"],
+            device_id=row["device_id"],
+            device_name=row["device_name"],
+            start_time=row["start_time"],
+            end_time=row["end_time"],
+            status=DiagnosisStatus(row["status"]),
+            feature_snapshot=feature_snapshot,
+            match_results=match_results,
+            created_at=row["created_at"],
+            completed_at=row["completed_at"],
+        )
+
+    def get_fault_knowledge(
+        self,
+        page: int = 1,
+        page_size: int = 100,
+    ) -> Tuple[List[FaultModeKnowledge], int]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+
+            cursor.execute("SELECT COUNT(*) as count FROM fault_mode_knowledge")
+            total = cursor.fetchone()["count"]
+
+            cursor.execute(
+                "SELECT * FROM fault_mode_knowledge ORDER BY id LIMIT ? OFFSET ?",
+                (page_size, (page - 1) * page_size),
+            )
+            rows = cursor.fetchall()
+
+            return (
+                [self._row_to_fault_knowledge(row) for row in rows],
+                total,
+            )
+
+    def get_all_fault_knowledge(self) -> List[FaultModeKnowledge]:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "SELECT * FROM fault_mode_knowledge ORDER BY id"
+            )
+            rows = cursor.fetchall()
+            return [self._row_to_fault_knowledge(row) for row in rows]
+
+    def create_fault_knowledge(
+        self,
+        name: str,
+        description: str,
+        key_frequency_features: str,
+        severity_level: SeverityLevel,
+        maintenance_action: str,
+    ) -> FaultModeKnowledge:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            try:
+                cursor.execute(
+                    """
+                    INSERT INTO fault_mode_knowledge (
+                        name, description, key_frequency_features, severity_level, maintenance_action
+                    ) VALUES (?, ?, ?, ?, ?)
+                    """,
+                    (
+                        name,
+                        description,
+                        key_frequency_features,
+                        severity_level.value,
+                        maintenance_action,
+                    ),
+                )
+                knowledge_id = cursor.lastrowid
+                conn.commit()
+            except sqlite3.IntegrityError as e:
+                raise ValueError(f"故障模式名称已存在: {name}") from e
+
+            cursor.execute(
+                "SELECT * FROM fault_mode_knowledge WHERE id = ?", (knowledge_id,)
+            )
+            row = cursor.fetchone()
+            return self._row_to_fault_knowledge(row)
+
+    def delete_fault_knowledge(self, knowledge_id: int) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                "DELETE FROM fault_mode_knowledge WHERE id = ?", (knowledge_id,)
+            )
+            conn.commit()
+            return cursor.rowcount > 0
+
+    def _row_to_fault_knowledge(self, row: sqlite3.Row) -> FaultModeKnowledge:
+        return FaultModeKnowledge(
+            id=row["id"],
+            name=row["name"],
+            description=row["description"],
+            key_frequency_features=row["key_frequency_features"],
+            severity_level=SeverityLevel(row["severity_level"]),
+            maintenance_action=row["maintenance_action"],
+            created_at=row["created_at"],
+        )
 
 
 _database_instance: Optional[Database] = None

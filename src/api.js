@@ -344,6 +344,48 @@ export function createWebSocket(deviceId, onMessage, onError, onClose) {
   return ws;
 }
 
+export const diagnosisApi = {
+  createTask: (taskData) =>
+    request('/diagnosis/tasks', {
+      method: 'POST',
+      body: JSON.stringify(taskData),
+    }),
+
+  getTasks: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/diagnosis/tasks${query ? `?${query}` : ''}`);
+  },
+
+  getTask: (taskId) => request(`/diagnosis/tasks/${taskId}`),
+
+  runTask: (taskId) =>
+    request(`/diagnosis/tasks/${taskId}/run`, {
+      method: 'POST',
+    }),
+
+  getMatchResults: (taskId) => request(`/diagnosis/tasks/${taskId}/match-results`),
+
+  getReport: (taskId) => request(`/diagnosis/tasks/${taskId}/report`),
+
+  downloadReport: (taskId) => `${BASE_URL}/diagnosis/tasks/${taskId}/report/download`,
+
+  getKnowledge: (params = {}) => {
+    const query = new URLSearchParams(params).toString();
+    return request(`/diagnosis/knowledge${query ? `?${query}` : ''}`);
+  },
+
+  createKnowledge: (knowledgeData) =>
+    request('/diagnosis/knowledge', {
+      method: 'POST',
+      body: JSON.stringify(knowledgeData),
+    }),
+
+  deleteKnowledge: (knowledgeId) =>
+    request(`/diagnosis/knowledge/${knowledgeId}`, {
+      method: 'DELETE',
+    }),
+};
+
 export const systemApi = {
   healthCheck: () => fetch('http://localhost:8000/health').then((r) => r.json()),
 
@@ -357,6 +399,7 @@ export default {
   data: dataApi,
   analysis: analysisApi,
   reports: reportsApi,
+  diagnosis: diagnosisApi,
   system: systemApi,
   createWebSocket,
 };

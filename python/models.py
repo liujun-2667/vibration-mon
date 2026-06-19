@@ -219,3 +219,106 @@ class PaginatedResponse(BaseModel):
     page: int = Field(..., description="当前页码")
     page_size: int = Field(..., description="每页条数")
     total_pages: int = Field(..., description="总页数")
+
+
+class DiagnosisStatus(str, Enum):
+    PENDING = "pending"
+    COMPLETED = "completed"
+    FAILED = "failed"
+
+
+class SeverityLevel(str, Enum):
+    LOW = "low"
+    MEDIUM = "medium"
+    HIGH = "high"
+    CRITICAL = "critical"
+
+
+class UrgencyLevel(str, Enum):
+    IMMEDIATE = "immediate"
+    PLANNED = "planned"
+    OBSERVE = "observe"
+
+
+class FeatureSnapshot(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    rms_trend_slope: float = Field(..., description="RMS趋势斜率")
+    kurtosis_mean: float = Field(..., description="峭度均值")
+    dominant_frequency_offset: float = Field(..., description="主频偏移量(Hz)")
+    harmonic_ratio: float = Field(..., description="谐波比")
+    peak_value: float = Field(..., description="峰值")
+    crest_factor: float = Field(..., description="波峰因数")
+    spectral_centroid: float = Field(..., description="频谱质心")
+    data_points_count: int = Field(..., description="分析数据点数")
+    time_domain_features: Optional[Dict[str, float]] = Field(default=None, description="完整时域特征")
+    frequency_domain_features: Optional[Dict[str, Any]] = Field(default=None, description="完整频域特征")
+
+
+class FaultModeKnowledge(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Optional[int] = Field(default=None, description="规则ID")
+    name: str = Field(..., description="故障模式名称")
+    description: str = Field(..., description="判定条件描述")
+    key_frequency_features: str = Field(..., description="关键频率特征")
+    severity_level: SeverityLevel = Field(default=SeverityLevel.MEDIUM, description="严重等级")
+    maintenance_action: str = Field(..., description="建议维护动作")
+    created_at: Optional[datetime] = Field(default=None, description="创建时间")
+
+
+class FaultModeKnowledgeCreate(BaseModel):
+    name: str = Field(..., description="故障模式名称")
+    description: str = Field(..., description="判定条件描述")
+    key_frequency_features: Optional[str] = Field(default="", description="关键频率特征")
+    severity_level: Optional[SeverityLevel] = Field(default=SeverityLevel.MEDIUM, description="严重等级")
+    maintenance_action: Optional[str] = Field(default="专业检查", description="建议维护动作")
+
+
+class FaultMatchResult(BaseModel):
+    fault_mode_name: str = Field(..., description="故障模式名称")
+    confidence: float = Field(..., description="匹配置信度(0-100)")
+    evidence: List[str] = Field(..., description="关键证据描述列表")
+    severity_level: SeverityLevel = Field(..., description="严重等级")
+    key_frequency_features: str = Field(..., description="关键频率特征")
+
+
+class MaintenanceSuggestion(BaseModel):
+    action: str = Field(..., description="建议动作")
+    urgency: UrgencyLevel = Field(..., description="紧急程度")
+    expected_impact: str = Field(..., description="预计影响")
+    estimated_cost: Optional[str] = Field(default=None, description="预计成本")
+
+
+class DiagnosisTask(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: Optional[int] = Field(default=None, description="任务ID")
+    device_id: int = Field(..., description="设备ID")
+    device_name: Optional[str] = Field(default=None, description="设备名称")
+    start_time: datetime = Field(..., description="开始时间")
+    end_time: datetime = Field(..., description="结束时间")
+    status: DiagnosisStatus = Field(default=DiagnosisStatus.PENDING, description="诊断状态")
+    feature_snapshot: Optional[FeatureSnapshot] = Field(default=None, description="特征快照")
+    match_results: Optional[List[FaultMatchResult]] = Field(default=None, description="故障匹配结果")
+    created_at: Optional[datetime] = Field(default=None, description="创建时间")
+    completed_at: Optional[datetime] = Field(default=None, description="完成时间")
+
+
+class DiagnosisTaskCreate(BaseModel):
+    device_id: int = Field(..., description="设备ID")
+    start_time: datetime = Field(..., description="开始时间")
+    end_time: datetime = Field(..., description="结束时间")
+
+
+class DiagnosisReport(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    task_id: int = Field(..., description="诊断任务ID")
+    device_info: Dict[str, Any] = Field(..., description="设备信息")
+    time_range: Dict[str, datetime] = Field(..., description="时间范围")
+    feature_snapshot: FeatureSnapshot = Field(..., description="特征快照数据")
+    fault_match_results: List[FaultMatchResult] = Field(..., description="故障匹配结果")
+    maintenance_suggestions: List[MaintenanceSuggestion] = Field(..., description="维护建议")
+    generated_at: datetime = Field(default_factory=datetime.now, description="生成时间")
+    report_version: str = Field(default="1.0", description="报告版本")

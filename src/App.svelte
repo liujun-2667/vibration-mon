@@ -13,12 +13,16 @@
   import DeviceCompare from './pages/DeviceCompare.svelte';
   import AlarmCenter from './pages/AlarmCenter.svelte';
   import ReportGenerator from './pages/ReportGenerator.svelte';
+  import DiagnosisWorkbench from './pages/DiagnosisWorkbench.svelte';
+  import DiagnosisDetail from './pages/DiagnosisDetail.svelte';
+  import KnowledgeBase from './pages/KnowledgeBase.svelte';
 
   let currentPage = 'dashboard';
   let sidebarCollapsed = false;
   let backendConnected = false;
   let ws = null;
   let selectedDeviceId = null;
+  let selectedTaskId = null;
 
   const menuItems = [
     { id: 'dashboard', name: '监控概览', icon: '📊' },
@@ -32,6 +36,8 @@
     { id: 'alarms', name: '报警中心', icon: '🔔' },
     { id: 'alarm-config', name: '报警规则', icon: '⚙️' },
     { id: 'reports', name: '报告生成', icon: '📄' },
+    { id: 'diagnosis', name: '智能诊断', icon: '🧠' },
+    { id: 'knowledge', name: '知识库管理', icon: '📚' },
   ];
 
   $: unacknowledged = $unacknowledgedAlarmCount;
@@ -42,7 +48,15 @@
     if (params.deviceId) {
       selectedDeviceId = params.deviceId;
     }
-    const hash = params.deviceId ? `${page}/${params.deviceId}` : page;
+    if (params.taskId) {
+      selectedTaskId = params.taskId;
+    }
+    let hash = page;
+    if (params.taskId) {
+      hash = `${page}/${params.taskId}`;
+    } else if (params.deviceId) {
+      hash = `${page}/${params.deviceId}`;
+    }
     window.location.hash = hash;
   }
 
@@ -50,12 +64,15 @@
     const hash = window.location.hash.slice(1) || 'dashboard';
     const parts = hash.split('/');
     const page = parts[0];
-    const deviceId = parts[1] ? parseInt(parts[1]) : null;
+    const paramId = parts[1] ? parseInt(parts[1]) : null;
     
     if (menuItems.some(item => item.id === page)) {
       currentPage = page;
-      if (deviceId) {
-        selectedDeviceId = deviceId;
+      if (page === 'diagnosis' && paramId) {
+        selectedTaskId = paramId;
+        currentPage = 'diagnosis-detail';
+      } else if (paramId) {
+        selectedDeviceId = paramId;
       }
     }
   }
@@ -247,6 +264,12 @@
         <ReportGenerator />
       {:else if currentPage === 'alarms'}
         <AlarmCenter />
+      {:else if currentPage === 'diagnosis'}
+        <DiagnosisWorkbench />
+      {:else if currentPage === 'diagnosis-detail'}
+        <DiagnosisDetail taskId={selectedTaskId} />
+      {:else if currentPage === 'knowledge'}
+        <KnowledgeBase />
       {:else}
         <div class="placeholder-page">
           <div class="placeholder-icon">📋</div>
