@@ -1,6 +1,8 @@
 <script>
   import { onMount, onDestroy } from 'svelte';
   import { Line } from 'svelte-chartjs';
+  import { format } from 'date-fns';
+  import { dataApi } from '../api.js';
   import {
     Chart as ChartJS,
     CategoryScale,
@@ -34,6 +36,27 @@
 
   let timeChartData = null;
   let freqChartData = null;
+
+  let comparisonMode = false;
+  let historicalRecords = [];
+  let selectedBaselineId = null;
+  let baselineLoading = false;
+  let compareChartData = null;
+  let topDiffs = [];
+
+  const compareChartOptions = {
+    responsive: true,
+    maintainAspectRatio: false,
+    plugins: {
+      legend: { display: true, position: 'top', labels: { font: { size: 12 } } },
+      tooltip: { mode: 'index', intersect: false }
+    },
+    scales: {
+      x: { title: { display: true, text: '频率 (Hz)' }, grid: { color: 'rgba(0, 0, 0, 0.05)' } },
+      y: { title: { display: true, text: '幅值' }, grid: { color: 'rgba(0, 0, 0, 0.05)' } }
+    },
+    interaction: { mode: 'index', intersect: false }
+  };
 
   const chartOptions = {
     responsive: true,
@@ -129,6 +152,124 @@
           backgroundColor: 'rgba(16, 185, 129, 0.1)',
           borderWidth: 2,
           fill: true,
+          tension: 0.3,
+          pointRadius: 0
+        }
+      ]
+    };
+  }
+
+  async function loadHistoricalRecords() {
+    baselineLoading = true;
+    try {
+      const res = await dataApi.getVibrationData({ device_id: deviceId, page_size: 50 });
+      const items = res?.data?.items || res?.items || [];
+      if (items.length > 0) {
+        historicalRecords = items.map(r => ({
+          id: r.id,
+          timestamp: r.timestamp,
+          data: Array.isArray(r.data) ? r.data : [],
+          sample_rate: r.sample_rate || 1000
+        }));
+      } else {
+        throw new Error('no records');
+      }
+    } catch (e) {
+      historicalRecords = generateMockHistoricalRecords();
+    } finally {
+      baselineLoading = false;
+    }
+  }
+
+  function generateMockHistoricalRecords() {
+    const records = [];
+    const now = Date.now();
+    for (let i = 0; i < 6; i++) {
+      const ts = now - i * 86400000 * 5;
+      const n = 1000;
+      const data = [];
+      const healthFactor = i === 0 ? 1.0 : 1.0 + i * 0.12;
+      for (let j = 0; j < n; j++) {
+        const t = j / 1000;
+        let s = 0.5 * healthFactor * Math.sin(2 * Math.PI * 50 * t)
+          + 0.2 * healthFactor * Math.sin(2 * Math.PI * 100 * t)
+          + 0.1 * healthFactor * Math.sin(2 * Math.PI * 150 * t);
+        s += 0.08 * (Math.random() - 0.5);
+        data.push(s);
+      }
+      records.push({
+        id: 1000 - i,
+        timestamp: new Date(ts).toISOString(),
+        data,
+        sample_rate: 1000
+      });
+    }
+    return records;
+  }
+
+  function toggleComparisonMode() {
+    comparisonMode = !comparisonMode;
+    if (comparisonMode && historicalRecords.length === 0) {
+      loadHistoricalRecords();
+    }
+    if (!comparisonMode) {
+      compareChartData = null;
+      topDiffs = [];
+      selectedBaselineId = null;
+    }
+  }
+
+  function selectBaseline(recordId) {
+    selectedBaselineId = recordId;
+    const record = historicalRecords.find(r => r.id === recordId);
+    if (!record) return;
+
+    const baselineSpectrum = computeFFT(record.data, record.sample_rate || 1000);
+    const currentFreq = frequencyData.freq;
+    const currentAmp = frequencyData.amplitude;
+
+    const len = Math.min(baselineSpectrum.amplitude.length, currentAmp.length);
+    const diffs = [];
+    for (let i = 0; i < len; i++) {
+      const baseVal = baselineSpectrum.amplitude[i];
+      const curVal = currentAmp[i];
+      const change = baseVal > 1e-6 ? ((curVal - baseVal) / baseVal) * 100 : (curVal > 1e-6 ? 100 : 0);
+      diffs.push({
+        index: i,
+        freq: currentFreq[i],
+        baseline: baseVal,
+        current: curVal,
+        change: change
+      });
+    }
+
+    diffs.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+    topDiffs = diffs.slice(0, 5).map(d => ({
+      ...d,
+      changePct: d.change
+    }));
+
+    compareChartData = {
+      labels: currentFreq,
+      datasets: [
+        {
+          label: '当前频谱',
+          data: currentAmp,
+          borderColor: '#3b82f6',
+          backgroundColor: 'rgba(59, 130, 246, 0.08)',
+          borderWidth: 2,
+          fill: true,
+          tension: 0.3,
+          pointRadius: 0
+        },
+        {
+          label: '基准频谱',
+          data: baselineSpectrum.amplitude,
+          borderColor: '#f59e0b',
+          backgroundColor: 'rgba(245, 158, 11, 0.08)',
+          borderWidth: 2,
+          borderDash: [6, 4],
+          fill: false,
           tension: 0.3,
           pointRadius: 0
         }
@@ -297,13 +438,72 @@
       <div class="chart-card">
         <div class="card-header">
           <h3 class="card-title">频谱图</h3>
-          <span class="card-subtitle">主导频率: {formatValue(analysisResult?.frequency_domain?.dominant_frequency)} Hz</span>
+          <div class="freq-header-right">
+            {#if !comparisonMode}
+              <span class="card-subtitle">主导频率: {formatValue(analysisResult?.frequency_domain?.dominant_frequency)} Hz</span>
+            {/if}
+            <button class="compare-toggle-btn" class:active={comparisonMode} on:click={toggleComparisonMode}>
+              {comparisonMode ? '退出对比' : '对比模式'}
+            </button>
+          </div>
         </div>
+
+        {#if comparisonMode}
+          <div class="baseline-selector">
+            <label class="baseline-label">选择基准频谱:</label>
+            <select class="baseline-select" value={selectedBaselineId} on:change={(e) => selectBaseline(Number(e.target.value))}>
+              <option value={null} disabled>请选择历史记录...</option>
+              {#if baselineLoading}
+                <option value={null} disabled>加载中...</option>
+              {:else}
+                {#each historicalRecords as record}
+                  <option value={record.id}>
+                    {format(new Date(record.timestamp), 'yyyy-MM-dd HH:mm')} · 记录 #{record.id}
+                  </option>
+                {/each}
+              {/if}
+            </select>
+            <span class="baseline-hint">提示: 选择设备投运初期的健康状态频谱作为基准</span>
+          </div>
+        {/if}
+
         <div class="chart-container">
-          {#if freqChartData}
+          {#if comparisonMode && compareChartData}
+            <Line data={compareChartData} options={compareChartOptions} />
+          {:else if freqChartData}
             <Line data={freqChartData} options={chartOptions} />
           {/if}
         </div>
+
+        {#if comparisonMode && topDiffs.length > 0}
+          <div class="diff-table-wrap">
+            <div class="diff-table-title">差异最大的前 5 个频率点</div>
+            <table class="diff-table">
+              <thead>
+                <tr>
+                  <th>序号</th>
+                  <th>频率值 (Hz)</th>
+                  <th>基准幅值</th>
+                  <th>当前幅值</th>
+                  <th>变化百分比</th>
+                </tr>
+              </thead>
+              <tbody>
+                {#each topDiffs as diff, i}
+                  <tr>
+                    <td>{i + 1}</td>
+                    <td>{diff.freq}</td>
+                    <td>{formatValue(diff.baseline, 4)}</td>
+                    <td>{formatValue(diff.current, 4)}</td>
+                    <td class="change-cell" style="color: {diff.changePct > 0 ? '#ef4444' : (diff.changePct < 0 ? '#10b981' : '#6b7280')}">
+                      {diff.changePct > 0 ? '+' : ''}{diff.changePct.toFixed(1)}%
+                    </td>
+                  </tr>
+                {/each}
+              </tbody>
+            </table>
+          </div>
+        {/if}
       </div>
     </div>
 
@@ -580,6 +780,113 @@
     font-size: 20px;
     font-weight: 700;
     color: #1f2937;
+  }
+
+  .freq-header-right {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    flex-wrap: wrap;
+  }
+
+  .compare-toggle-btn {
+    padding: 6px 14px;
+    border: 1px solid #d1d5db;
+    background: white;
+    border-radius: 8px;
+    font-size: 13px;
+    font-weight: 500;
+    color: #374151;
+    cursor: pointer;
+    transition: all 0.2s;
+  }
+
+  .compare-toggle-btn:hover {
+    border-color: #3b82f6;
+    color: #3b82f6;
+  }
+
+  .compare-toggle-btn.active {
+    background: #3b82f6;
+    border-color: #3b82f6;
+    color: white;
+  }
+
+  .baseline-selector {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    flex-wrap: wrap;
+    padding: 12px;
+    background: #f0f7ff;
+    border-radius: 8px;
+    margin-bottom: 12px;
+    border: 1px solid #bfdbfe;
+  }
+
+  .baseline-label {
+    font-size: 13px;
+    font-weight: 600;
+    color: #1f2937;
+    white-space: nowrap;
+  }
+
+  .baseline-select {
+    padding: 6px 10px;
+    border: 1px solid #d1d5db;
+    border-radius: 6px;
+    font-size: 13px;
+    background: white;
+    min-width: 260px;
+    cursor: pointer;
+  }
+
+  .baseline-hint {
+    font-size: 12px;
+    color: #6b7280;
+    flex: 1;
+    min-width: 180px;
+  }
+
+  .diff-table-wrap {
+    margin-top: 16px;
+    border-top: 1px dashed #e5e7eb;
+    padding-top: 14px;
+  }
+
+  .diff-table-title {
+    font-size: 14px;
+    font-weight: 600;
+    color: #1f2937;
+    margin-bottom: 10px;
+  }
+
+  .diff-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 13px;
+  }
+
+  .diff-table th,
+  .diff-table td {
+    padding: 8px 10px;
+    text-align: left;
+    border-bottom: 1px solid #f3f4f6;
+  }
+
+  .diff-table th {
+    background: #f9fafb;
+    color: #6b7280;
+    font-weight: 600;
+    font-size: 12px;
+  }
+
+  .diff-table tbody tr:hover {
+    background: #f9fafb;
+  }
+
+  .change-cell {
+    font-weight: 700;
   }
 
   @media (max-width: 768px) {

@@ -448,6 +448,109 @@
     URL.revokeObjectURL(url);
   }
 
+  let exportingCSV = false;
+  let exportingSpectrum = false;
+  let exportMsg = '';
+
+  function inferSampleRate() {
+    if (vibrationData.length >= 2) {
+      const dt = (new Date(vibrationData[1].timestamp).getTime() - new Date(vibrationData[0].timestamp).getTime()) / 1000;
+      if (dt > 0) return Math.round(1 / dt);
+    }
+    return 100;
+  }
+
+  function downloadBlob(content, filename, mime) {
+    const blob = new Blob([content], { type: mime });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = filename;
+    a.click();
+    URL.revokeObjectURL(url);
+  }
+
+  async function exportRawCSV() {
+    if (!selectedDevice || vibrationData.length === 0) return;
+    exportingCSV = true;
+    exportMsg = '';
+    try {
+      const sampleRate = inferSampleRate();
+      const header = 'timestamp,acceleration\n';
+      const rows = new Array(vibrationData.length);
+      for (let i = 0; i < vibrationData.length; i++) {
+        const rec = vibrationData[i];
+        const ts = rec.timestamp instanceof Date ? rec.timestamp.toISOString() : new Date(rec.timestamp).toISOString();
+        const val = typeof rec.value === 'number' ? rec.value : parseFloat(rec.value);
+        rows[i] = `${ts},${val}`;
+      }
+      const csv = header + rows.join('\n');
+      const devName = selectedDevice.name || `device_${selectedDevice.id}`;
+      const fname = `raw_${devName}_${format(startTime, 'yyyyMMdd_HHmm')}_${format(endTime, 'yyyyMMdd_HHmm')}.csv`;
+      downloadBlob(csv, fname, 'text/csv;charset=utf-8;');
+      exportMsg = `CSV 导出成功: ${vibrationData.length} 个采样点 (采样率约 ${sampleRate} Hz)`;
+    } catch (e) {
+      exportMsg = `CSV 导出失败: ${e.message}`;
+    } finally {
+      exportingCSV = false;
+    }
+  }
+
+  function computeFFT(signal, sampleRate) {
+    const n = signal.length;
+    const nFFT = Math.pow(2, Math.floor(Math.log2(n)));
+    const data = signal.slice(0, nFFT);
+    const freqs = [];
+    const amplitudes = [];
+    for (let k = 0; k < nFFT / 2; k++) {
+      let real = 0, imag = 0;
+      for (let t = 0; t < nFFT; t++) {
+        const angle = -2 * Math.PI * k * t / nFFT;
+        real += data[t] * Math.cos(angle);
+        imag += data[t] * Math.sin(angle);
+      }
+      const amplitude = 2 * Math.sqrt(real * real + imag * imag) / nFFT;
+      freqs.push(+(k * sampleRate / nFFT).toFixed(2));
+      amplitudes.push(+amplitude.toFixed(6));
+    }
+    return { freqs, amplitudes };
+  }
+
+  async function exportSpectrumJSON() {
+    if (!selectedDevice || vibrationData.length === 0) return;
+    exportingSpectrum = true;
+    exportMsg = '';
+    try {
+      const sampleRate = inferSampleRate();
+      const signal = vibrationData.map(r => typeof r.value === 'number' ? r.value : parseFloat(r.value));
+      const { freqs, amplitudes } = computeFFT(signal, sampleRate);
+      const payload = {
+        device_id: selectedDevice.id,
+        device_name: selectedDevice.name,
+        device_code: selectedDevice.code,
+        time_range: {
+          start: new Date(vibrationData[0].timestamp).toISOString(),
+          end: new Date(vibrationData[vibrationData.length - 1].timestamp).toISOString()
+        },
+        sample_rate: sampleRate,
+        sample_count: signal.length,
+        fft_size: Math.pow(2, Math.floor(Math.log2(signal.length))),
+        frequencies: freqs,
+        amplitudes: amplitudes,
+        exported_at: new Date().toISOString()
+      };
+      const json = JSON.stringify(payload, null, 2);
+      const devName = selectedDevice.name || `device_${selectedDevice.id}`;
+      const fname = `spectrum_${devName}_${format(startTime, 'yyyyMMdd_HHmm')}_${format(endTime, 'yyyyMMdd_HHmm')}.json`;
+      downloadBlob(json, fname, 'application/json');
+      exportMsg = `频谱 JSON 导出成功: ${freqs.length} 个频率点`;
+    } catch (e) {
+      exportMsg = `频谱 JSON 导出失败: ${e.message}`;
+    } finally {
+      exportingSpectrum = false;
+    }
+  }
+
   onMount(() => {
     initDateInputs();
     fetchDevices();
@@ -637,6 +740,40 @@
           <div class="stat-unit">%</div>
         </div>
       </div>
+    </div>
+
+    <div class="export-section">
+      <div class="export-header">
+        <h2 class="section-title">数据导出</h2>
+        <span class="export-range-info">
+          {selectedDevice?.name} · {formatTime(startTime)} - {formatTime(endTime)} · {vibrationData.length} 个采样点
+        </span>
+      </div>
+      <div class="export-cards">
+        <div class="export-card">
+          <div class="export-card-icon">📄</div>
+          <div class="export-card-body">
+            <div class="export-card-title">原始时域数据 (CSV)</div>
+            <div class="export-card-desc">每行一个采样点，列包含时间戳与加速度值</div>
+          </div>
+          <button class="btn btn-primary" on:click={exportRawCSV} disabled={exportingCSV || exportingSpectrum}>
+            {exportingCSV ? '导出中...' : '导出 CSV'}
+          </button>
+        </div>
+        <div class="export-card">
+          <div class="export-card-icon">📊</div>
+          <div class="export-card-body">
+            <div class="export-card-title">频谱分析结果 (JSON)</div>
+            <div class="export-card-desc">包含频率数组与对应幅值数组</div>
+          </div>
+          <button class="btn btn-primary" on:click={exportSpectrumJSON} disabled={exportingCSV || exportingSpectrum}>
+            {exportingSpectrum ? '导出中...' : '导出 JSON'}
+          </button>
+        </div>
+      </div>
+      {#if exportMsg}
+        <div class="export-msg">{exportMsg}</div>
+      {/if}
     </div>
   {/if}
 
@@ -1304,6 +1441,74 @@
     border-top: 1px solid #e5e7eb;
     background: #f9fafb;
     border-radius: 0 0 16px 16px;
+  }
+
+  .export-section {
+    background: white;
+    border-radius: 12px;
+    padding: 20px;
+    margin-bottom: 20px;
+    box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1), 0 2px 4px -1px rgba(0, 0, 0, 0.06);
+  }
+
+  .export-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+
+  .export-range-info {
+    font-size: 13px;
+    color: #6b7280;
+  }
+
+  .export-cards {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+    gap: 14px;
+  }
+
+  .export-card {
+    display: flex;
+    align-items: center;
+    gap: 14px;
+    padding: 16px;
+    background: #f9fafb;
+    border: 1px solid #e5e7eb;
+    border-radius: 10px;
+  }
+
+  .export-card-icon {
+    font-size: 30px;
+  }
+
+  .export-card-body {
+    flex: 1;
+  }
+
+  .export-card-title {
+    font-size: 15px;
+    font-weight: 600;
+    color: #1f2937;
+  }
+
+  .export-card-desc {
+    font-size: 12px;
+    color: #6b7280;
+    margin-top: 3px;
+  }
+
+  .export-msg {
+    margin-top: 14px;
+    padding: 10px 14px;
+    background: #eff6ff;
+    color: #1e40af;
+    border-radius: 8px;
+    font-size: 13px;
+    border: 1px solid #bfdbfe;
   }
 
   @media (max-width: 768px) {

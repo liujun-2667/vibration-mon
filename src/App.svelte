@@ -10,6 +10,8 @@
   import AlarmConfig from './pages/AlarmConfig.svelte';
   import DeviceManager from './pages/DeviceManager.svelte';
   import DataReplay from './pages/DataReplay.svelte';
+  import DeviceCompare from './pages/DeviceCompare.svelte';
+  import AlarmCenter from './pages/AlarmCenter.svelte';
   import ReportGenerator from './pages/ReportGenerator.svelte';
 
   let currentPage = 'dashboard';
@@ -22,6 +24,7 @@
     { id: 'dashboard', name: '监控概览', icon: '📊' },
     { id: 'devices', name: '设备管理', icon: '📡' },
     { id: 'analysis', name: '数据分析', icon: '📈' },
+    { id: 'device-compare', name: '设备对比', icon: '🔬' },
     { id: 'trend', name: '趋势监测', icon: '📉' },
     { id: 'feature', name: '特征频率', icon: '🔢' },
     { id: 'simulator', name: '信号模拟', icon: '🎛️' },
@@ -226,6 +229,8 @@
         <Dashboard />
       {:else if currentPage === 'analysis'}
         <DeviceAnalysis deviceId={selectedDeviceId || $currentDevice?.id || 1} />
+      {:else if currentPage === 'device-compare'}
+        <DeviceCompare />
       {:else if currentPage === 'simulator'}
         <SignalSimulator />
       {:else if currentPage === 'feature'}
@@ -241,34 +246,7 @@
       {:else if currentPage === 'reports'}
         <ReportGenerator />
       {:else if currentPage === 'alarms'}
-        <div class="placeholder-page">
-          <div class="placeholder-icon">🔔</div>
-          <h2>报警中心</h2>
-          <p>查看和处理所有报警记录</p>
-          <div class="card-grid">
-            <div class="stat-card">
-              <div class="stat-icon">📊</div>
-              <div class="stat-content">
-                <div class="stat-label">报警总数</div>
-                <div class="stat-value text-primary">{statusCounts.total || 0}</div>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon">⚠️</div>
-              <div class="stat-content">
-                <div class="stat-label">未处理</div>
-                <div class="stat-value text-warning">{unacknowledged}</div>
-              </div>
-            </div>
-            <div class="stat-card">
-              <div class="stat-icon">✅</div>
-              <div class="stat-content">
-                <div class="stat-label">已处理</div>
-                <div class="stat-value text-success">{(statusCounts.total || 0) - unacknowledged}</div>
-              </div>
-            </div>
-          </div>
-        </div>
+        <AlarmCenter />
       {:else}
         <div class="placeholder-page">
           <div class="placeholder-icon">📋</div>
