@@ -14,6 +14,8 @@
   let errorMessage = '';
   let adding = false;
   let deletingId = null;
+  let formErrors = {};
+  let formTouched = {};
 
   const SEVERITY_COLORS = {
     low: '#3b82f6',
@@ -55,21 +57,56 @@
     newSeverity = 'medium';
     newAction = '';
     errorMessage = '';
+    formErrors = {};
+    formTouched = {};
     showAddModal = true;
   }
 
   function closeAddModal() {
     showAddModal = false;
     errorMessage = '';
+    formErrors = {};
+    formTouched = {};
+  }
+
+  function validateField(field) {
+    formTouched = { ...formTouched, [field]: true };
+    const errors = { ...formErrors };
+
+    if (field === 'name') {
+      if (!newName.trim()) {
+        errors.name = '请输入故障模式名称';
+      } else if (newName.trim().length > 50) {
+        errors.name = '名称长度不能超过50个字符';
+      } else {
+        delete errors.name;
+      }
+    }
+
+    if (field === 'description') {
+      if (!newDescription.trim()) {
+        errors.description = '请输入判定条件描述';
+      } else if (newDescription.trim().length < 5) {
+        errors.description = '描述至少需要5个字符';
+      } else {
+        delete errors.description;
+      }
+    }
+
+    formErrors = errors;
+    return !errors[field];
+  }
+
+  function validateAllFields() {
+    let isValid = true;
+    if (!validateField('name')) isValid = false;
+    if (!validateField('description')) isValid = false;
+    return isValid;
   }
 
   async function addKnowledge() {
-    if (!newName.trim()) {
-      errorMessage = '请输入故障模式名称';
-      return;
-    }
-    if (!newDescription.trim()) {
-      errorMessage = '请输入判定条件描述';
+    if (!validateAllFields()) {
+      errorMessage = '请完善必填字段后再提交';
       return;
     }
 
@@ -249,24 +286,36 @@
             <input
               type="text"
               bind:value={newName}
-              class="form-input"
+              on:blur={() => validateField('name')}
+              class="form-input {formTouched.name && formErrors.name ? 'error' : ''}"
               placeholder="如：轴承磨损、齿轮啮合不良等"
             />
+            {#if formTouched.name && formErrors.name}
+              <p class="field-hint error">{formErrors.name}</p>
+            {:else}
+              <p class="field-hint">必填，不超过50个字符</p>
+            {/if}
           </div>
 
           <div class="form-group">
             <label>判定条件描述 <span class="required">*</span></label>
             <textarea
               bind:value={newDescription}
-              class="form-textarea"
+              on:blur={() => validateField('description')}
+              class="form-textarea {formTouched.description && formErrors.description ? 'error' : ''}"
               rows="3"
               placeholder="请详细描述该故障模式的判定条件和特征表现"
             ></textarea>
+            {#if formTouched.description && formErrors.description}
+              <p class="field-hint error">{formErrors.description}</p>
+            {:else}
+              <p class="field-hint">必填，至少5个字符</p>
+            {/if}
           </div>
 
           <div class="form-row">
             <div class="form-group">
-              <label>关键频率特征</label>
+              <label>关键频率特征 <span class="optional">（选填）</span></label>
               <input
                 type="text"
                 bind:value={newKeyFeatures}
@@ -275,7 +324,7 @@
               />
             </div>
             <div class="form-group">
-              <label>严重等级</label>
+              <label>严重等级 <span class="optional">（选填，默认：中）</span></label>
               <select bind:value={newSeverity} class="form-select">
                 <option value="low">低</option>
                 <option value="medium">中</option>
@@ -286,7 +335,7 @@
           </div>
 
           <div class="form-group">
-            <label>建议维护动作</label>
+            <label>建议维护动作 <span class="optional">（选填，默认：专业检查）</span></label>
             <input
               type="text"
               bind:value={newAction}
@@ -633,6 +682,32 @@
   }
 
   .required {
+    color: var(--color-danger);
+  }
+
+  .optional {
+    color: var(--color-gray-400);
+    font-weight: 400;
+    font-size: var(--font-size-xs);
+  }
+
+  .form-input.error,
+  .form-textarea.error {
+    border-color: var(--color-danger);
+  }
+
+  .form-input.error:focus,
+  .form-textarea.error:focus {
+    box-shadow: 0 0 0 3px var(--color-danger-lighter);
+  }
+
+  .field-hint {
+    font-size: var(--font-size-xs);
+    color: var(--color-gray-500);
+    margin-top: var(--spacing-1);
+  }
+
+  .field-hint.error {
     color: var(--color-danger);
   }
 

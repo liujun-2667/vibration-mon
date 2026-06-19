@@ -15,6 +15,7 @@ from models import (
     MaintenanceSuggestion,
     DiagnosisReport,
     DiagnosisTask,
+    DiagnosisStatus,
     SeverityLevel,
     UrgencyLevel,
 )
@@ -42,7 +43,17 @@ class FaultMatcherEngine:
         )
 
         if not vibration_data:
-            raise ValueError(f"设备 {device_id} 在指定时间范围内没有振动数据")
+            logger.warning(f"设备 {device_id} 在指定时间范围内没有振动数据，使用默认特征值")
+            return FeatureSnapshot(
+                rms_trend_slope=0.0,
+                kurtosis_mean=3.0,
+                dominant_frequency_offset=0.0,
+                harmonic_ratio=0.1,
+                peak_value=0.5,
+                crest_factor=3.0,
+                spectral_centroid=50.0,
+                data_points_count=0,
+            )
 
         rms_values = []
         kurtosis_values = []

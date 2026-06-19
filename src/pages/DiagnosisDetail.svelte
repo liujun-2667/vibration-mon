@@ -7,11 +7,15 @@
 
   let loading = true;
   let generatingReport = false;
+  let rerunningDiagnosis = false;
   let task = null;
   let report = null;
   let showReport = false;
   let errorMessage = '';
   let refreshInterval = null;
+  let pendingStartTime = 0;
+  let currentTime = Date.now();
+  let tickInterval = null;
 
   const STATUS_COLORS = {
     pending: '#f59e0b',
@@ -85,6 +89,25 @@
     }
   }
 
+  async function rerunDiagnosis() {
+    rerunningDiagnosis = true;
+    errorMessage = '';
+    try {
+      const response = await diagnosisApi.runTask(taskId);
+      if (response.success) {
+        errorMessage = '';
+        pendingStartTime = Date.now();
+        loadTask();
+      } else {
+        errorMessage = response.message || '重新运行诊断失败';
+      }
+    } catch (error) {
+      errorMessage = error.message || '重新运行诊断失败';
+    } finally {
+      rerunningDiagnosis = false;
+    }
+  }
+
   async function generateReport() {
     generatingReport = true;
     errorMessage = '';
@@ -135,17 +158,24 @@
   }
 
   onMount(() => {
+    pendingStartTime = Date.now();
     loadTask();
     refreshInterval = setInterval(() => {
       if (task && task.status === 'pending') {
         loadTask();
       }
     }, 5000);
+    tickInterval = setInterval(() => {
+      currentTime = Date.now();
+    }, 1000);
   });
 
   onDestroy(() => {
     if (refreshInterval) {
       clearInterval(refreshInterval);
+    }
+    if (tickInterval) {
+      clearInterval(tickInterval);
     }
   });
 </script>
@@ -166,6 +196,16 @@
         {:else}
           <span class="btn-icon">📄</span>
           生成诊断报告
+        {/if}
+      </button>
+    {:else if task && (task.status === 'failed' || (task.status === 'pending' && currentTime - pendingStartTime > 30000))}
+      <button class="btn-primary" on:click={rerunDiagnosis} disabled={rerunningDiagnosis}>
+        {#if rerunningDiagnosis}
+          <span class="spinner small"></span>
+          运行中...
+        {:else}
+          <span class="btn-icon">🔄</span>
+          {task.status === 'failed' ? '重新运行诊断' : '手动触发诊断'}
         {/if}
       </button>
     {/if}
@@ -226,12 +266,24 @@
           <div class="spinner"></div>
           <h3>正在分析中...</h3>
           <p>系统正在提取振动特征并进行故障模式匹配，请稍候</p>
+          {#if currentTime - pendingStartTime > 30000}
+            <p class="pending-hint">分析时间过长，您可以点击右上角的"手动触发诊断"按钮立即执行</p>
+          {/if}
         </div>
       {:else if task.status === 'failed'}
         <div class="error-card">
           <div class="error-icon">❌</div>
           <h3>诊断失败</h3>
           <p>诊断过程中出现错误，请检查数据是否存在后重试</p>
+          <button class="btn-primary" on:click={rerunDiagnosis} disabled={rerunningDiagnosis} style="margin-top: 16px;">
+            {#if rerunningDiagnosis}
+              <span class="spinner small"></span>
+              重新运行中...
+            {:else}
+              <span class="btn-icon">🔄</span>
+              重新运行诊断
+            {/if}
+          </button>
         </div>
       {:else if task.feature_snapshot}
         <div class="feature-card">
