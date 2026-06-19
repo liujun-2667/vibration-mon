@@ -16,6 +16,9 @@
   let pendingStartTime = 0;
   let currentTime = Date.now();
   let tickInterval = null;
+  let expandedMatchIndex = null;
+  let reportPreview = null;
+  let loadingReportPreview = false;
 
   const STATUS_COLORS = {
     pending: '#f59e0b',
@@ -79,6 +82,8 @@
         task = response.data;
         if (task.status === 'pending') {
           setTimeout(loadTask, 3000);
+        } else if (task.status === 'completed') {
+          loadReportPreview();
         }
       }
     } catch (error) {
@@ -87,6 +92,43 @@
     } finally {
       loading = false;
     }
+  }
+
+  async function loadReportPreview() {
+    loadingReportPreview = true;
+    try {
+      const response = await diagnosisApi.getReport(taskId);
+      if (response.success && response.data) {
+        const reportData = response.data;
+        const topFault = reportData.fault_match_results && reportData.fault_match_results.length > 0
+          ? reportData.fault_match_results[0]
+          : null;
+        const immediateCount = reportData.maintenance_suggestions
+          ? reportData.maintenance_suggestions.filter(s => s.urgency === 'immediate').length
+          : 0;
+
+        reportPreview = {
+          device_name: reportData.device_info?.name || task.device_name || `设备-${task.device_id}`,
+          start_time: reportData.time_range?.start || task.start_time,
+          end_time: reportData.time_range?.end || task.end_time,
+          top_fault_name: topFault ? topFault.fault_mode_name : '无',
+          top_fault_confidence: topFault ? topFault.confidence : 0,
+          immediate_suggestions_count: immediateCount,
+          generated_at: reportData.generated_at
+        };
+      }
+    } catch (error) {
+      console.error('加载报告预览失败:', error);
+      reportPreview = null;
+    } finally {
+      loadingReportPreview = false;
+    }
+  }
+
+  async function refreshAll() {
+    loading = true;
+    reportPreview = null;
+    await loadTask();
   }
 
   async function rerunDiagnosis() {
@@ -143,6 +185,10 @@
     window.dispatchEvent(event);
   }
 
+  function toggleMatchExpand(index) {
+    expandedMatchIndex = expandedMatchIndex === index ? null : index;
+  }
+
   function exportReportAsJSON() {
     if (!report) return;
     const dataStr = JSON.stringify(report, null, 2);
@@ -188,27 +234,33 @@
       </button>
       <h2>诊断任务详情</h2>
     </div>
-    {#if task && task.status === 'completed'}
-      <button class="btn-primary" on:click={generateReport} disabled={generatingReport}>
-        {#if generatingReport}
-          <span class="spinner small"></span>
-          生成中...
-        {:else}
-          <span class="btn-icon">📄</span>
-          生成诊断报告
-        {/if}
+    <div class="header-actions">
+      <button class="btn-secondary" on:click={refreshAll} title="刷新数据">
+        <span class="btn-icon">🔄</span>
+        刷新
       </button>
-    {:else if task && (task.status === 'failed' || (task.status === 'pending' && currentTime - pendingStartTime > 30000))}
-      <button class="btn-primary" on:click={rerunDiagnosis} disabled={rerunningDiagnosis}>
-        {#if rerunningDiagnosis}
-          <span class="spinner small"></span>
-          运行中...
-        {:else}
-          <span class="btn-icon">🔄</span>
-          {task.status === 'failed' ? '重新运行诊断' : '手动触发诊断'}
-        {/if}
-      </button>
-    {/if}
+      {#if task && task.status === 'completed'}
+        <button class="btn-primary" on:click={generateReport} disabled={generatingReport}>
+          {#if generatingReport}
+            <span class="spinner small"></span>
+            生成中...
+          {:else}
+            <span class="btn-icon">📄</span>
+            生成诊断报告
+          {/if}
+        </button>
+      {:else if task && (task.status === 'failed' || (task.status === 'pending' && currentTime - pendingStartTime > 30000))}
+        <button class="btn-primary" on:click={rerunDiagnosis} disabled={rerunningDiagnosis}>
+          {#if rerunningDiagnosis}
+            <span class="spinner small"></span>
+            运行中...
+          {:else}
+            <span class="btn-icon">🔄</span>
+            {task.status === 'failed' ? '重新运行诊断' : '手动触发诊断'}
+          {/if}
+        </button>
+      {/if}
+    </div>
   </div>
 
   {#if loading}
@@ -260,6 +312,78 @@
           {/if}
         </div>
       </div>
+
+      {#if task.status === 'completed'}
+        <div class="report-preview-card">
+          <div class="card-header">
+            <h3>📋 报告预览</h3>
+            <button 
+              class="refresh-small-btn" 
+              on:click={loadReportPreview} 
+              disabled={loadingReportPreview}
+              title="刷新报告预览"
+            >
+              {#if loadingReportPreview}
+                <span class="spinner tiny"></span>
+              {:else}
+                🔄
+              {/if}
+            </button>
+          </div>
+
+          {#if loadingReportPreview && !reportPreview}
+            <div class="preview-loading">
+              <div class="spinner small"></div>
+              <p>加载报告预览中...</p>
+            </div>
+          {:else if reportPreview}
+            <div class="preview-grid">
+              <div class="preview-item">
+                <div class="preview-icon">📡</div>
+                <div class="preview-info">
+                  <span class="preview-label">设备名称</span>
+                  <span class="preview-value">{reportPreview.device_name}</span>
+                </div>
+              </div>
+
+              <div class="preview-item">
+                <div class="preview-icon">📅</div>
+                <div class="preview-info">
+                  <span class="preview-label">诊断时间范围</span>
+                  <span class="preview-value">{formatTimeRange(reportPreview.start_time, reportPreview.end_time)}</span>
+                </div>
+              </div>
+
+              <div class="preview-item highlight">
+                <div class="preview-icon">🎯</div>
+                <div class="preview-info">
+                  <span class="preview-label">最高置信度故障</span>
+                  <span class="preview-value fault-value">
+                    {reportPreview.top_fault_name}
+                    <span class="confidence-badge" style="color: {getConfidenceColor(reportPreview.top_fault_confidence)}">
+                      {reportPreview.top_fault_confidence}%
+                    </span>
+                  </span>
+                </div>
+              </div>
+
+              <div class="preview-item {reportPreview.immediate_suggestions_count > 0 ? 'urgent' : ''}">
+                <div class="preview-icon">⚠️</div>
+                <div class="preview-info">
+                  <span class="preview-label">需立即处理建议</span>
+                  <span class="preview-value urgent-value">
+                    {reportPreview.immediate_suggestions_count} 条
+                  </span>
+                </div>
+              </div>
+            </div>
+          {:else}
+            <div class="preview-empty">
+              <p>暂无报告数据，点击"生成诊断报告"按钮创建报告</p>
+            </div>
+          {/if}
+        </div>
+      {/if}
 
       {#if task.status === 'pending'}
         <div class="pending-card">
@@ -367,41 +491,46 @@
 
             <div class="match-list">
               {#each task.match_results as result, index}
-                <div class="match-item" class:top={index === 0}>
-                  <div class="match-rank">#{index + 1}</div>
-                  <div class="match-content">
-                    <div class="match-header">
+                <div class="match-item accordion-item" class:top={index === 0} class:expanded={expandedMatchIndex === index}>
+                  <div class="accordion-header" on:click={() => toggleMatchExpand(index)}>
+                    <div class="match-rank">#{index + 1}</div>
+                    <div class="accordion-title">
                       <h4>{result.fault_mode_name}</h4>
-                      <div class="match-meta">
-                        <span
-                          class="severity-badge"
-                          style="background: {SEVERITY_COLORS[result.severity_level]}20; color: {SEVERITY_COLORS[result.severity_level]}"
-                        >
-                          {SEVERITY_LABELS[result.severity_level]}
+                      <span
+                        class="severity-badge"
+                        style="background: {SEVERITY_COLORS[result.severity_level]}20; color: {SEVERITY_COLORS[result.severity_level]}"
+                      >
+                        {SEVERITY_LABELS[result.severity_level]}
+                      </span>
+                    </div>
+                    <div class="accordion-meta">
+                      <div class="confidence-bar">
+                        <div class="confidence-fill" style="width: {result.confidence}%; background: {getConfidenceColor(result.confidence)}"></div>
+                        <span class="confidence-text" style="color: {getConfidenceColor(result.confidence)}">
+                          {result.confidence}%
                         </span>
-                        <div class="confidence-bar">
-                          <div class="confidence-fill" style="width: {result.confidence}%; background: {getConfidenceColor(result.confidence)}"></div>
-                          <span class="confidence-text" style="color: {getConfidenceColor(result.confidence)}">
-                            {result.confidence}%
-                          </span>
-                        </div>
                       </div>
-                    </div>
-
-                    <div class="frequency-feature">
-                      <span class="label">关键频率特征:</span>
-                      <span class="value">{result.key_frequency_features}</span>
-                    </div>
-
-                    <div class="evidence-section">
-                      <span class="evidence-label">关键证据:</span>
-                      <ul class="evidence-list">
-                        {#each result.evidence as item}
-                          <li>✓ {item}</li>
-                        {/each}
-                      </ul>
+                      <span class="accordion-icon">{expandedMatchIndex === index ? '▲' : '▼'}</span>
                     </div>
                   </div>
+
+                  {#if expandedMatchIndex === index}
+                    <div class="accordion-content">
+                      <div class="frequency-feature">
+                        <span class="label">关键频率特征:</span>
+                        <span class="value">{result.key_frequency_features}</span>
+                      </div>
+
+                      <div class="evidence-section">
+                        <span class="evidence-label">关键证据:</span>
+                        <ul class="evidence-list">
+                          {#each result.evidence as item}
+                            <li>✓ {item}</li>
+                          {/each}
+                        </ul>
+                      </div>
+                    </div>
+                  {/if}
                 </div>
               {/each}
             </div>
@@ -545,6 +674,12 @@
     gap: var(--spacing-4);
   }
 
+  .header-actions {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-3);
+  }
+
   .back-btn {
     background: var(--color-gray-100);
     border: none;
@@ -634,12 +769,122 @@
   .feature-card,
   .match-card,
   .no-match-card,
-  .error-card {
+  .error-card,
+  .report-preview-card {
     background: var(--color-white);
     border-radius: var(--radius-lg);
     border: var(--border-width) solid var(--color-gray-200);
     box-shadow: var(--shadow-sm);
     overflow: hidden;
+  }
+
+  .refresh-small-btn {
+    background: var(--color-gray-100);
+    border: none;
+    padding: var(--spacing-2);
+    border-radius: var(--radius-sm);
+    cursor: pointer;
+    font-size: var(--font-size-base);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    transition: all var(--transition-fast);
+    min-width: 32px;
+    min-height: 32px;
+  }
+
+  .refresh-small-btn:hover:not(:disabled) {
+    background: var(--color-gray-200);
+  }
+
+  .refresh-small-btn:disabled {
+    cursor: not-allowed;
+    opacity: 0.6;
+  }
+
+  .spinner.tiny {
+    width: 14px;
+    height: 14px;
+    border-width: 2px;
+    margin: 0;
+  }
+
+  .preview-loading,
+  .preview-empty {
+    text-align: center;
+    padding: var(--spacing-8) var(--spacing-6);
+    color: var(--color-gray-500);
+  }
+
+  .preview-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(240px, 1fr));
+    gap: var(--spacing-4);
+    padding: var(--spacing-5);
+  }
+
+  .preview-item {
+    display: flex;
+    align-items: flex-start;
+    gap: var(--spacing-3);
+    padding: var(--spacing-4);
+    background: var(--color-gray-50);
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--color-gray-300);
+    transition: all var(--transition-fast);
+  }
+
+  .preview-item.highlight {
+    background: linear-gradient(135deg, var(--color-warning-lighter) 0%, var(--color-gray-50) 100%);
+    border-left-color: var(--color-warning);
+  }
+
+  .preview-item.urgent {
+    background: linear-gradient(135deg, var(--color-danger-lighter) 0%, var(--color-gray-50) 100%);
+    border-left-color: var(--color-danger);
+  }
+
+  .preview-icon {
+    font-size: var(--font-size-2xl);
+    flex-shrink: 0;
+  }
+
+  .preview-info {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    flex: 1;
+    min-width: 0;
+  }
+
+  .preview-label {
+    font-size: var(--font-size-xs);
+    color: var(--color-gray-500);
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+
+  .preview-value {
+    font-size: var(--font-size-base);
+    font-weight: 600;
+    color: var(--color-gray-900);
+    word-break: break-word;
+  }
+
+  .fault-value {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    flex-wrap: wrap;
+  }
+
+  .confidence-badge {
+    font-size: var(--font-size-sm);
+    font-weight: 700;
+  }
+
+  .urgent-value {
+    font-size: var(--font-size-lg);
   }
 
   .card-header {
@@ -778,22 +1023,90 @@
     padding: var(--spacing-5);
     display: flex;
     flex-direction: column;
-    gap: var(--spacing-4);
+    gap: var(--spacing-3);
   }
 
   .match-item {
     display: flex;
-    gap: var(--spacing-4);
-    padding: var(--spacing-4);
+    flex-direction: column;
+    gap: 0;
+    padding: 0;
     background: var(--color-gray-50);
     border-radius: var(--radius-md);
     border-left: 4px solid var(--color-gray-300);
     transition: all var(--transition-fast);
+    overflow: hidden;
   }
 
   .match-item.top {
     border-left-color: var(--color-danger);
     background: linear-gradient(90deg, var(--color-danger-lighter) 0%, var(--color-gray-50) 100%);
+  }
+
+  .match-item.expanded {
+    box-shadow: var(--shadow-sm);
+  }
+
+  .accordion-header {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-4);
+    padding: var(--spacing-4);
+    cursor: pointer;
+    user-select: none;
+    transition: background var(--transition-fast);
+  }
+
+  .accordion-header:hover {
+    background: rgba(0, 0, 0, 0.02);
+  }
+
+  .accordion-title {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-3);
+    flex: 1;
+  }
+
+  .accordion-title h4 {
+    margin: 0;
+    font-size: var(--font-size-lg);
+    color: var(--color-gray-900);
+  }
+
+  .accordion-meta {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-4);
+  }
+
+  .accordion-icon {
+    font-size: var(--font-size-xs);
+    color: var(--color-gray-400);
+    transition: transform var(--transition-fast);
+    width: 20px;
+    text-align: center;
+  }
+
+  .match-item.expanded .accordion-icon {
+    color: var(--color-primary);
+  }
+
+  .accordion-content {
+    padding: 0 var(--spacing-4) var(--spacing-4);
+    padding-left: calc(var(--spacing-4) + 32px + var(--spacing-4));
+    animation: slideDown 0.25s ease;
+  }
+
+  @keyframes slideDown {
+    from {
+      opacity: 0;
+      transform: translateY(-8px);
+    }
+    to {
+      opacity: 1;
+      transform: translateY(0);
+    }
   }
 
   .match-rank {
@@ -812,29 +1125,6 @@
 
   .match-item.top .match-rank {
     background: var(--color-danger);
-  }
-
-  .match-content {
-    flex: 1;
-  }
-
-  .match-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
-    margin-bottom: var(--spacing-3);
-  }
-
-  .match-header h4 {
-    margin: 0;
-    font-size: var(--font-size-lg);
-    color: var(--color-gray-900);
-  }
-
-  .match-meta {
-    display: flex;
-    align-items: center;
-    gap: var(--spacing-3);
   }
 
   .severity-badge {

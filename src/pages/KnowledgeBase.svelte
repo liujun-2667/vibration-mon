@@ -16,6 +16,10 @@
   let deletingId = null;
   let formErrors = {};
   let formTouched = {};
+  let showDeleteModal = false;
+  let deleteTarget = null;
+  let checkingDeleteReference = false;
+  let deleteReferenceInfo = null;
 
   const SEVERITY_COLORS = {
     low: '#3b82f6',
@@ -136,14 +140,41 @@
   }
 
   async function deleteKnowledge(id) {
-    if (!confirm('确定要删除这条故障模式规则吗？删除后无法恢复。')) {
-      return;
-    }
+    const target = knowledgeList.find(k => k.id === id);
+    if (!target) return;
 
-    deletingId = id;
+    deleteTarget = target;
+    deleteReferenceInfo = null;
+    showDeleteModal = true;
+    checkingDeleteReference = true;
+
     try {
-      const response = await diagnosisApi.deleteKnowledge(id);
+      const response = await diagnosisApi.checkKnowledgeReference(id);
+      if (response.success && response.data) {
+        deleteReferenceInfo = response.data;
+      }
+    } catch (error) {
+      console.error('检查规则引用失败:', error);
+    } finally {
+      checkingDeleteReference = false;
+    }
+  }
+
+  function closeDeleteModal() {
+    showDeleteModal = false;
+    deleteTarget = null;
+    deleteReferenceInfo = null;
+    checkingDeleteReference = false;
+  }
+
+  async function confirmDeleteKnowledge() {
+    if (!deleteTarget) return;
+
+    deletingId = deleteTarget.id;
+    try {
+      const response = await diagnosisApi.deleteKnowledge(deleteTarget.id);
       if (response.success) {
+        closeDeleteModal();
         loadKnowledge();
       }
     } catch (error) {
@@ -363,6 +394,66 @@
               添加中...
             {:else}
               添加规则
+            {/if}
+          </button>
+        </div>
+      </div>
+    </div>
+  {/if}
+
+  {#if showDeleteModal && deleteTarget}
+    <div class="modal-overlay" on:click={closeDeleteModal}>
+      <div class="modal-content small" on:click|stopPropagation>
+        <div class="modal-header">
+          <h3>⚠️ 删除确认</h3>
+          <button class="close-btn" on:click={closeDeleteModal}>×</button>
+        </div>
+
+        <div class="modal-body">
+          <div class="delete-warning">
+            <div class="warning-icon">🗑️</div>
+            <div class="warning-content">
+              <p class="warning-title">确定要删除以下故障模式规则吗？</p>
+              <div class="rule-info">
+                <span class="rule-label">规则名称:</span>
+                <span class="rule-name">{deleteTarget.name}</span>
+              </div>
+              <p class="warning-desc">删除后无法恢复，后续的故障诊断将不再使用此规则。</p>
+            </div>
+          </div>
+
+          {#if checkingDeleteReference}
+            <div class="reference-check">
+              <div class="spinner small"></div>
+              <span>正在检查规则引用情况...</span>
+            </div>
+          {:else if deleteReferenceInfo && deleteReferenceInfo.has_pending_reference}
+            <div class="reference-warning">
+              <div class="reference-icon">⚠️</div>
+              <div class="reference-content">
+                <p class="reference-title">该规则可能影响正在进行的诊断任务</p>
+                <p class="reference-desc">
+                  当前有 <strong>{deleteReferenceInfo.pending_tasks_count}</strong> 个未完成的诊断任务，
+                  这些任务创建于该规则生效之后，可能正在使用此规则进行匹配。
+                </p>
+              </div>
+            </div>
+          {/if}
+        </div>
+
+        <div class="modal-footer">
+          <button class="btn-secondary" on:click={closeDeleteModal}>取消</button>
+          <button
+            class="btn-danger"
+            on:click={confirmDeleteKnowledge}
+            disabled={deletingId === deleteTarget.id}
+          >
+            {#if deletingId === deleteTarget.id}
+              <span class="spinner small"></span>
+              删除中...
+            {:else}
+              <span class="btn-icon">🗑️</span>
+              确认删除
             {/if}
           </button>
         </div>
@@ -629,6 +720,114 @@
     box-shadow: var(--shadow-2xl);
   }
 
+  .modal-content.small {
+    max-width: 480px;
+  }
+
+  .delete-warning {
+    display: flex;
+    gap: var(--spacing-4);
+    padding: var(--spacing-4);
+    background: var(--color-gray-50);
+    border-radius: var(--radius-md);
+    margin-bottom: var(--spacing-4);
+  }
+
+  .warning-icon {
+    font-size: 40px;
+    flex-shrink: 0;
+  }
+
+  .warning-content {
+    flex: 1;
+  }
+
+  .warning-title {
+    margin: 0 0 var(--spacing-2) 0;
+    font-weight: 600;
+    color: var(--color-gray-900);
+    font-size: var(--font-size-base);
+  }
+
+  .rule-info {
+    display: flex;
+    align-items: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-3);
+    background: var(--color-white);
+    border: var(--border-width) solid var(--color-gray-200);
+    border-radius: var(--radius-sm);
+    margin-bottom: var(--spacing-2);
+  }
+
+  .rule-label {
+    font-size: var(--font-size-sm);
+    color: var(--color-gray-500);
+    flex-shrink: 0;
+  }
+
+  .rule-name {
+    font-weight: 600;
+    color: var(--color-gray-900);
+    font-size: var(--font-size-base);
+  }
+
+  .warning-desc {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-gray-600);
+    line-height: 1.5;
+  }
+
+  .reference-check {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-3);
+    padding: var(--spacing-4);
+    background: var(--color-gray-50);
+    border-radius: var(--radius-md);
+    color: var(--color-gray-600);
+    font-size: var(--font-size-sm);
+  }
+
+  .reference-warning {
+    display: flex;
+    gap: var(--spacing-3);
+    padding: var(--spacing-4);
+    background: var(--color-warning-lighter);
+    border-radius: var(--radius-md);
+    border-left: 4px solid var(--color-warning);
+  }
+
+  .reference-icon {
+    font-size: 24px;
+    flex-shrink: 0;
+  }
+
+  .reference-content {
+    flex: 1;
+  }
+
+  .reference-title {
+    margin: 0 0 var(--spacing-1) 0;
+    font-weight: 600;
+    color: var(--color-warning-dark);
+    font-size: var(--font-size-sm);
+  }
+
+  .reference-desc {
+    margin: 0;
+    font-size: var(--font-size-sm);
+    color: var(--color-gray-700);
+    line-height: 1.5;
+  }
+
+  .reference-desc strong {
+    color: var(--color-danger);
+    font-weight: 700;
+  }
+
   .modal-header {
     display: flex;
     justify-content: space-between;
@@ -796,6 +995,33 @@
   }
 
   .btn-primary:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+  }
+
+  .btn-danger {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: var(--spacing-2);
+    padding: var(--spacing-3) var(--spacing-5);
+    border: none;
+    border-radius: var(--radius-md);
+    font-size: var(--font-size-base);
+    font-weight: 500;
+    cursor: pointer;
+    transition: all var(--transition-fast);
+    background: linear-gradient(135deg, var(--color-danger) 0%, var(--color-danger-dark, #b91c1c) 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(239, 68, 68, 0.3);
+  }
+
+  .btn-danger:hover:not(:disabled) {
+    transform: translateY(-1px);
+    box-shadow: 0 4px 12px rgba(239, 68, 68, 0.4);
+  }
+
+  .btn-danger:disabled {
     opacity: 0.6;
     cursor: not-allowed;
   }

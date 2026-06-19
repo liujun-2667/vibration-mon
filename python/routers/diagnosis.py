@@ -47,11 +47,31 @@ def _get_device_info(device_id: int) -> dict:
     return {"id": device_id, "name": f"设备-{device_id}"}
 
 
-@router.post("/tasks", response_model=CommandResponse, status_code=201)
+@router.post("/tasks", response_model=CommandResponse)
 async def create_diagnosis_task(task_create: DiagnosisTaskCreate, background_tasks: BackgroundTasks):
     """
     创建诊断任务
     """
+    if task_create.start_time >= task_create.end_time:
+        return CommandResponse(
+            success=False,
+            message="开始时间必须早于结束时间",
+            error_code="INVALID_TIME_RANGE",
+        )
+
+    has_data = db.check_vibration_data_exists(
+        device_id=task_create.device_id,
+        start_time=task_create.start_time,
+        end_time=task_create.end_time,
+    )
+
+    if not has_data:
+        return CommandResponse(
+            success=False,
+            message="所选时间范围内无振动数据,请调整时间范围",
+            error_code="NO_VIBRATION_DATA",
+        )
+
     device_name = _get_device_name(task_create.device_id)
 
     task = db.create_diagnosis_task(
@@ -295,6 +315,8 @@ async def delete_fault_knowledge(knowledge_id: int):
     """
     删除故障模式规则
     """
+    pending_count = db.check_pending_tasks_for_knowledge(knowledge_id)
+
     success = db.delete_fault_knowledge(knowledge_id)
     if not success:
         raise HTTPException(
@@ -305,5 +327,35 @@ async def delete_fault_knowledge(knowledge_id: int):
     return CommandResponse(
         success=True,
         message="删除故障模式规则成功",
-        data={"knowledge_id": knowledge_id},
+        data={
+            "knowledge_id": knowledge_id,
+            "affected_pending_tasks": pending_count
+        },
+    )
+
+
+@router.get("/knowledge/{knowledge_id}/check-reference", response_model=CommandResponse)
+async def check_knowledge_reference(knowledge_id: int):
+    """
+    检查故障模式规则是否被未完成的诊断任务引用
+    """
+    knowledge = db.get_all_fault_knowledge()
+    knowledge_item = next((k for k in knowledge if k.id == knowledge_id), None)
+    if not knowledge_item:
+        raise HTTPException(
+            status_code=status.HTTP_404_NOT_FOUND,
+            detail=f"故障模式规则 {knowledge_id} 不存在"
+        )
+
+    pending_count = db.check_pending_tasks_for_knowledge(knowledge_id)
+
+    return CommandResponse(
+        success=True,
+        message="检查完成",
+        data={
+            "knowledge_id": knowledge_id,
+            "knowledge_name": knowledge_item.name,
+            "pending_tasks_count": pending_count,
+            "has_pending_reference": pending_count > 0
+        },
     )

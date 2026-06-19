@@ -1162,6 +1162,55 @@ class Database:
             conn.commit()
             return cursor.rowcount > 0
 
+    def check_pending_tasks_for_knowledge(self, knowledge_id: int) -> int:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT created_at FROM fault_mode_knowledge WHERE id = ?
+                """,
+                (knowledge_id,)
+            )
+            knowledge_row = cursor.fetchone()
+            if not knowledge_row or not knowledge_row["created_at"]:
+                return 0
+
+            knowledge_created_at = knowledge_row["created_at"]
+
+            cursor.execute(
+                """
+                SELECT COUNT(*) as count
+                FROM diagnosis_tasks
+                WHERE status = ?
+                  AND created_at >= ?
+                """,
+                (DiagnosisStatus.PENDING.value, knowledge_created_at)
+            )
+            result = cursor.fetchone()
+            return result["count"] if result else 0
+
+    def check_vibration_data_exists(
+        self,
+        device_id: int,
+        start_time: datetime,
+        end_time: datetime,
+    ) -> bool:
+        with self._get_connection() as conn:
+            cursor = conn.cursor()
+            cursor.execute(
+                """
+                SELECT COUNT(*) as count
+                FROM vibration_data
+                WHERE device_id = ?
+                  AND timestamp >= ?
+                  AND timestamp <= ?
+                """,
+                (device_id, start_time, end_time)
+            )
+            result = cursor.fetchone()
+            count = result["count"] if result else 0
+            return count > 0
+
     def _row_to_fault_knowledge(self, row: sqlite3.Row) -> FaultModeKnowledge:
         return FaultModeKnowledge(
             id=row["id"],

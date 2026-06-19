@@ -211,6 +211,7 @@ class CommandResponse(BaseModel):
     success: bool = Field(..., description="是否成功")
     message: str = Field(..., description="响应消息")
     data: Optional[Any] = Field(default=None, description="返回数据")
+    error_code: Optional[str] = Field(default=None, description="错误代码（失败时返回）")
 
 
 class PaginatedResponse(BaseModel):

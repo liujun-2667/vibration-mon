@@ -384,6 +384,9 @@ export const diagnosisApi = {
     request(`/diagnosis/knowledge/${knowledgeId}`, {
       method: 'DELETE',
     }),
+
+  checkKnowledgeReference: (knowledgeId) =>
+    request(`/diagnosis/knowledge/${knowledgeId}/check-reference`),
 };
 
 export const systemApi = {
