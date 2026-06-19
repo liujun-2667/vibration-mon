@@ -30,11 +30,57 @@
   let compareView = false;
   let loading = false;
   let deviceData = [];
+  let chartDataList = [];
   let sharedYMin = -1;
   let sharedYMax = 1;
   let refreshTimer = null;
 
   const colors = ['#3b82f6', '#ef4444', '#10b981', '#f59e0b'];
+
+  function buildChartOptions() {
+    return {
+      responsive: true,
+      maintainAspectRatio: false,
+      animation: false,
+      plugins: {
+        legend: { display: false },
+        tooltip: { enabled: false }
+      },
+      scales: {
+        x: {
+          title: { display: true, text: '时间 (s)', font: { size: 11 } },
+          grid: { color: 'rgba(0, 0, 0, 0.05)' },
+          ticks: { maxTicksLimit: 6, font: { size: 10 } }
+        },
+        y: {
+          title: { display: true, text: '加速度 (m/s²)', font: { size: 11 } },
+          min: sharedYMin,
+          max: sharedYMax,
+          grid: { color: 'rgba(0, 0, 0, 0.05)' },
+          ticks: { font: { size: 10 } }
+        }
+      }
+    };
+  }
+
+  let chartOptions = buildChartOptions();
+
+  $: if (deviceData.length > 0) {
+    chartDataList = deviceData.map((item, idx) => ({
+      labels: item.labels,
+      datasets: [{
+        label: item.device.name,
+        data: item.data,
+        borderColor: colors[idx % colors.length],
+        backgroundColor: colors[idx % colors.length] + '15',
+        borderWidth: 1.5,
+        fill: false,
+        tension: 0.2,
+        pointRadius: 0
+      }]
+    }));
+    chartOptions = buildChartOptions();
+  }
 
   function generateMockSignal(seed = 1, amp = 1) {
     const n = 500;
@@ -173,48 +219,6 @@
     }
   }
 
-  function buildChartConfig(item, idx) {
-    return {
-      type: 'line',
-      data: {
-        labels: item.labels,
-        datasets: [{
-          label: item.device.name,
-          data: item.data,
-          borderColor: colors[idx % colors.length],
-          backgroundColor: colors[idx % colors.length] + '15',
-          borderWidth: 1.5,
-          fill: false,
-          tension: 0.2,
-          pointRadius: 0
-        }]
-      },
-      options: {
-        responsive: true,
-        maintainAspectRatio: false,
-        animation: false,
-        plugins: {
-          legend: { display: false },
-          tooltip: { enabled: false }
-        },
-        scales: {
-          x: {
-            title: { display: true, text: '时间 (s)', font: { size: 11 } },
-            grid: { color: 'rgba(0, 0, 0, 0.05)' },
-            ticks: { maxTicksLimit: 6, font: { size: 10 } }
-          },
-          y: {
-            title: { display: true, text: '加速度 (m/s²)', font: { size: 11 } },
-            min: sharedYMin,
-            max: sharedYMax,
-            grid: { color: 'rgba(0, 0, 0, 0.05)' },
-            ticks: { font: { size: 10 } }
-          }
-        }
-      }
-    };
-  }
-
   function getStatColor(stats) {
     if (stats.rms > 2.0) return '#ef4444';
     if (stats.rms > 1.2) return '#f59e0b';
@@ -300,7 +304,7 @@
             </div>
 
             <div class="mini-chart">
-              <Line {...buildChartConfig(item, idx)} />
+              <Line data={chartDataList[idx]} options={chartOptions} />
             </div>
           </div>
         {/each}

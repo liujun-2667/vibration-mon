@@ -229,11 +229,26 @@
     const currentAmp = frequencyData.amplitude;
 
     const len = Math.min(baselineSpectrum.amplitude.length, currentAmp.length);
+
+    let maxBase = 0;
+    let maxCur = 0;
+    for (let i = 0; i < len; i++) {
+      if (baselineSpectrum.amplitude[i] > maxBase) maxBase = baselineSpectrum.amplitude[i];
+      if (currentAmp[i] > maxCur) maxCur = currentAmp[i];
+    }
+    const threshold = Math.max(maxBase, maxCur) * 0.05;
+
     const diffs = [];
     for (let i = 0; i < len; i++) {
       const baseVal = baselineSpectrum.amplitude[i];
       const curVal = currentAmp[i];
-      const change = baseVal > 1e-6 ? ((curVal - baseVal) / baseVal) * 100 : (curVal > 1e-6 ? 100 : 0);
+      if (baseVal < threshold && curVal < threshold) continue;
+      let change;
+      if (baseVal >= threshold) {
+        change = ((curVal - baseVal) / baseVal) * 100;
+      } else {
+        change = curVal > 0 ? Infinity : 0;
+      }
       diffs.push({
         index: i,
         freq: currentFreq[i],
@@ -243,10 +258,18 @@
       });
     }
 
-    diffs.sort((a, b) => Math.abs(b.change) - Math.abs(a.change));
+    diffs.sort((a, b) => {
+      const aFin = isFinite(a.change);
+      const bFin = isFinite(b.change);
+      if (aFin && bFin) return Math.abs(b.change) - Math.abs(a.change);
+      if (!aFin && !bFin) return b.current - a.current;
+      return aFin ? 1 : -1;
+    });
+
     topDiffs = diffs.slice(0, 5).map(d => ({
       ...d,
-      changePct: d.change
+      changePct: isFinite(d.change) ? d.change : null,
+      isNewPeak: !isFinite(d.change)
     }));
 
     compareChartData = {
@@ -495,8 +518,12 @@
                     <td>{diff.freq}</td>
                     <td>{formatValue(diff.baseline, 4)}</td>
                     <td>{formatValue(diff.current, 4)}</td>
-                    <td class="change-cell" style="color: {diff.changePct > 0 ? '#ef4444' : (diff.changePct < 0 ? '#10b981' : '#6b7280')}">
-                      {diff.changePct > 0 ? '+' : ''}{diff.changePct.toFixed(1)}%
+                    <td class="change-cell" style="color: {diff.isNewPeak ? '#8b5cf6' : (diff.changePct > 0 ? '#ef4444' : (diff.changePct < 0 ? '#10b981' : '#6b7280'))}">
+                      {#if diff.isNewPeak}
+                        新增峰值
+                      {:else}
+                        {diff.changePct > 0 ? '+' : ''}{diff.changePct.toFixed(1)}%
+                      {/if}
                     </td>
                   </tr>
                 {/each}

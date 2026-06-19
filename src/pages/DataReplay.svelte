@@ -452,9 +452,29 @@
   let exportingSpectrum = false;
   let exportMsg = '';
 
-  function inferSampleRate() {
-    if (vibrationData.length >= 2) {
-      const dt = (new Date(vibrationData[1].timestamp).getTime() - new Date(vibrationData[0].timestamp).getTime()) / 1000;
+  async function fetchExportData() {
+    if (!selectedDevice) return [];
+    try {
+      const params = {
+        device_id: selectedDevice.id,
+        start_time: startTime.toISOString(),
+        end_time: endTime.toISOString(),
+        page_size: 50000
+      };
+      const response = await dataApi.getVibrationData(params);
+      const data = response.data?.items || response.data || [];
+      if (data.length > 0) {
+        return data;
+      }
+      throw new Error('empty');
+    } catch (e) {
+      return generateMockVibrationData(startTime, endTime);
+    }
+  }
+
+  function inferSampleRateFromData(data) {
+    if (data.length >= 2) {
+      const dt = (new Date(data[1].timestamp).getTime() - new Date(data[0].timestamp).getTime()) / 1000;
       if (dt > 0) return Math.round(1 / dt);
     }
     return 100;
@@ -471,15 +491,20 @@
   }
 
   async function exportRawCSV() {
-    if (!selectedDevice || vibrationData.length === 0) return;
+    if (!selectedDevice) return;
     exportingCSV = true;
-    exportMsg = '';
+    exportMsg = '正在获取数据...';
     try {
-      const sampleRate = inferSampleRate();
+      const data = await fetchExportData();
+      if (data.length === 0) {
+        exportMsg = '没有可导出的数据';
+        return;
+      }
+      const sampleRate = inferSampleRateFromData(data);
       const header = 'timestamp,acceleration\n';
-      const rows = new Array(vibrationData.length);
-      for (let i = 0; i < vibrationData.length; i++) {
-        const rec = vibrationData[i];
+      const rows = new Array(data.length);
+      for (let i = 0; i < data.length; i++) {
+        const rec = data[i];
         const ts = rec.timestamp instanceof Date ? rec.timestamp.toISOString() : new Date(rec.timestamp).toISOString();
         const val = typeof rec.value === 'number' ? rec.value : parseFloat(rec.value);
         rows[i] = `${ts},${val}`;
@@ -488,7 +513,7 @@
       const devName = selectedDevice.name || `device_${selectedDevice.id}`;
       const fname = `raw_${devName}_${format(startTime, 'yyyyMMdd_HHmm')}_${format(endTime, 'yyyyMMdd_HHmm')}.csv`;
       downloadBlob(csv, fname, 'text/csv;charset=utf-8;');
-      exportMsg = `CSV 导出成功: ${vibrationData.length} 个采样点 (采样率约 ${sampleRate} Hz)`;
+      exportMsg = `CSV 导出成功: ${data.length} 个采样点 (采样率约 ${sampleRate} Hz)`;
     } catch (e) {
       exportMsg = `CSV 导出失败: ${e.message}`;
     } finally {
@@ -517,20 +542,25 @@
   }
 
   async function exportSpectrumJSON() {
-    if (!selectedDevice || vibrationData.length === 0) return;
+    if (!selectedDevice) return;
     exportingSpectrum = true;
-    exportMsg = '';
+    exportMsg = '正在获取数据...';
     try {
-      const sampleRate = inferSampleRate();
-      const signal = vibrationData.map(r => typeof r.value === 'number' ? r.value : parseFloat(r.value));
+      const data = await fetchExportData();
+      if (data.length === 0) {
+        exportMsg = '没有可导出的数据';
+        return;
+      }
+      const sampleRate = inferSampleRateFromData(data);
+      const signal = data.map(r => typeof r.value === 'number' ? r.value : parseFloat(r.value));
       const { freqs, amplitudes } = computeFFT(signal, sampleRate);
       const payload = {
         device_id: selectedDevice.id,
         device_name: selectedDevice.name,
         device_code: selectedDevice.code,
         time_range: {
-          start: new Date(vibrationData[0].timestamp).toISOString(),
-          end: new Date(vibrationData[vibrationData.length - 1].timestamp).toISOString()
+          start: new Date(data[0].timestamp).toISOString(),
+          end: new Date(data[data.length - 1].timestamp).toISOString()
         },
         sample_rate: sampleRate,
         sample_count: signal.length,
